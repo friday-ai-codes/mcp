@@ -3,6 +3,8 @@
  *
  * - 无参数：启动 stdio MCP server（供 Cursor / Claude Code / Codex 调用）
  * - init：写入用户级配置 ~/.friday/config.json 并校验连通性
+ * - register：把 friday MCP server 幂等注册进 Cursor / Claude Code / Codex 配置
+ * - doctor：检查配置、连通性与各 agent 的注册状态
  *
  * init 输出走 stderr 之外的 stdout 是安全的（init 模式下无 MCP 协议流）；
  * server 模式下绝不向 stdout 打印任何非协议内容。
@@ -10,6 +12,8 @@
 
 import process from 'node:process'
 import { CONFIG_FILE, normalizeBaseUrl, resolveConfig, writeConfig } from './config.js'
+import { detectAgents, registerAgent, registrationStatus, SUPPORTED_AGENTS } from './register.js'
+import type { AgentName } from './register.js'
 import { runStdioServer } from './server.js'
 
 function parseInitArgs(argv: string[]): { baseUrl?: string, token?: string } {
@@ -62,10 +66,66 @@ async function runInit(argv: string[]): Promise<number> {
     console.warn(`警告: 无法访问 ${baseUrl}/health —— 配置已保存，请确认地址可达（内网 / VPN / 端口）。`)
   }
 
-  console.log('下一步: 在你的 IDE 注册 MCP server，例如 Claude Code:')
-  console.log('  claude mcp add friday -- npx -y @friday-ai-codes/mcp')
-  console.log('Cursor 则在 .cursor/mcp.json 加入 {"friday": {"command": "npx", "args": ["-y", "@friday-ai-codes/mcp"]}}')
+  console.log('下一步: 注册 MCP server 到你的 agent（自动探测 Cursor / Claude Code / Codex）:')
+  console.log('  npx -y @friday-ai-codes/mcp register')
   return 0
+}
+
+function parseRegisterArgs(argv: string[]): { agents: AgentName[], project: boolean, error?: string } {
+  const agents: AgentName[] = []
+  let project = false
+  let all = false
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--agent') {
+      const value = argv[++i] as AgentName
+      if (!SUPPORTED_AGENTS.includes(value))
+        return { agents: [], project, error: `不支持的 agent: ${value}（可用: ${SUPPORTED_AGENTS.join(' / ')}）` }
+      agents.push(value)
+    }
+    else if (arg === '--all') {
+      all = true
+    }
+    else if (arg === '--project') {
+      project = true
+    }
+    else {
+      return { agents: [], project, error: `未知参数: ${arg}` }
+    }
+  }
+  if (all)
+    return { agents: [...SUPPORTED_AGENTS], project }
+  if (agents.length > 0)
+    return { agents, project }
+  return { agents: detectAgents(), project }
+}
+
+async function runRegister(argv: string[]): Promise<number> {
+  const { agents, project, error } = parseRegisterArgs(argv)
+  if (error) {
+    console.error(error)
+    console.error('用法: friday-mcp register [--agent cursor|claude-code|codex]... [--all] [--project]')
+    return 1
+  }
+  if (agents.length === 0) {
+    console.error('未探测到已安装的 agent（~/.cursor、~/.claude、~/.codex 均不存在）。')
+    console.error('用 --agent 指定目标，例如: friday-mcp register --agent cursor')
+    return 1
+  }
+
+  let failed = false
+  for (const agent of agents) {
+    const result = registerAgent(agent, { project })
+    const mark = result.status === 'registered' ? '+' : result.status === 'already' ? '=' : '!'
+    console.log(`[${mark}] ${agent}: ${result.detail}`)
+    if (result.status === 'skipped')
+      failed = true
+  }
+
+  if (!resolveConfig())
+    console.log('提示: 尚未配置凭证。运行: npx -y @friday-ai-codes/mcp init --base-url <地址> --token <令牌>')
+  console.log('注册完成后需重启 agent 会话，friday 工具才会出现。')
+  return failed ? 1 : 0
 }
 
 async function main(): Promise<void> {
@@ -77,6 +137,15 @@ async function main(): Promise<void> {
   }
 
   if (command === 'doctor') {
+    const statuses = registrationStatus()
+    if (statuses.length === 0) {
+      console.log('注册状态: 未探测到已安装的 agent')
+    }
+    else {
+      for (const s of statuses)
+        console.log(`注册状态: ${s.agent} ${s.registered ? '已注册' : '未注册'}（${s.location}）`)
+    }
+
     const config = resolveConfig()
     if (!config) {
       console.error('未配置。运行: friday-mcp init --base-url <地址> --token <令牌>')
@@ -91,8 +160,13 @@ async function main(): Promise<void> {
     return
   }
 
+  if (command === 'register') {
+    process.exitCode = await runRegister(rest)
+    return
+  }
+
   if (command && command !== 'serve') {
-    console.error(`未知命令: ${command}（可用: init / doctor / serve）`)
+    console.error(`未知命令: ${command}（可用: init / register / doctor / serve）`)
     process.exitCode = 1
     return
   }
