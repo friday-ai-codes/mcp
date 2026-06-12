@@ -1,5 +1,5 @@
 /**
- * Friday MCP 工具定义（22 个），与服务端 server/mcp_tools/serializers.py 对齐。
+ * Friday MCP 工具定义（23 个），与服务端 server/mcp_tools/serializers.py 对齐。
  *
  * 每个工具对应一个 HTTP 端点 POST {baseUrl}/api/mcp/tools/{name}/。
  * inputSchema 为 JSON Schema（MCP 标准），字段约束镜像 DRF serializer。
@@ -105,7 +105,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   },
   {
     name: 'get_repository_file',
-    description: '读取仓库内单个文件内容（支持行范围截取）。',
+    description: '读取仓库内单个文件内容（支持行范围截取）。优先从本地 git 镜像读取完整文件（source="git"，行号精确），镜像不可用时回退索引 chunk 拼接（source="index"）。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -117,6 +117,36 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         max_lines: int('最大返回行数', { min: 1, max: 2000, default: 500 }),
       },
       required: ['repository_id', 'file_path'],
+    },
+  },
+  {
+    name: 'grep_repository',
+    description: '在仓库本地 git 镜像快照上做精确文本检索（ripgrep / git grep，确定性全量结果）。与 search_rag_chunks 的语义召回互补：「穷举所有出现位置」类问题（字面量 / 符号引用 / 跳转路径枚举）必须用这个，语义检索保证不了全量。默认单仓（repository_id）；跨仓需显式 opt-in（repository_ids 数组或 all_repositories=true），结果按仓库分组。默认锁定到与 RAG 索引一致的 commit 快照（matches_index=true）。建议先用 output_mode=files_only 看命中分布，再用 content + context_lines 取关键上下文。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repository_id: uuid('仓库 UUID（单仓检索，来自 route_repositories / get_repository）'),
+        repository_ids: strList('跨仓检索的仓库 UUID 列表（<=10 个，显式 opt-in）'),
+        all_repositories: bool('对全部已索引仓库检索（显式 opt-in，受 max_repos 限制）', false),
+        max_repos: int('跨仓检索的仓库数上限', { min: 1, max: 20, default: 10 }),
+        pattern: str('检索模式（<=512 字符）；默认按字面量精确匹配，regex=true 时按正则解释'),
+        branch: str('分支名（仅单仓检索可指定），省略用默认分支'),
+        regex: bool('是否按正则解释 pattern', false),
+        case_sensitive: bool('是否大小写敏感', true),
+        paths: strList('限定路径前缀列表（如 "apps/home"，<=10 个）'),
+        include_globs: strList('包含 glob 列表（如 "**/*.ts"，<=10 个）'),
+        exclude_globs: strList('排除 glob 列表（如 "**/dist/**"，<=10 个）'),
+        context_lines: int('每个命中行附带的上下文行数（仅 content 模式生效）', { min: 0, max: 50, default: 0 }),
+        max_matches: int('每仓命中行数上限（超出时 truncated=true）', { min: 1, max: 500, default: 100 }),
+        output_mode: {
+          type: 'string',
+          enum: ['content', 'files_only', 'count'],
+          default: 'content',
+          description: '输出模式：content 命中行+上下文 / files_only 逐文件命中计数（看分布）/ count 仅统计',
+        },
+        max_tokens: int('content 模式的输出 token 预算（超出截断并置 truncated=true）', { min: 256, max: 32000, default: 8000 }),
+      },
+      required: ['pattern'],
     },
   },
   {
@@ -426,6 +456,7 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   get_repository_file: query('仓库 · 读取文件'),
   // 分析
   search_rag_chunks: query('分析 · GraphRAG 混合检索'),
+  grep_repository: query('分析 · 精确文本检索（grep）'),
   find_related_chunks: query('分析 · 图谱关系扩散'),
   analyze_repository: generator('分析 · 结构化仓库分析'),
   // 计划
