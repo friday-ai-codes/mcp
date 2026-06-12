@@ -17,14 +17,17 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('fRIDAY_TOOLS', () => {
-  it('定义了与服务端一致的 19 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(19)
+  it('定义了与服务端一致的 22 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(22)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(19)
+    expect(new Set(names).size).toBe(22)
     expect(names).toContain('route_repositories')
     expect(names).toContain('execute_coding_plan')
     expect(names).toContain('create_merge_request')
     expect(names).toContain('search_learning_cases')
+    expect(names).toContain('search_delivery_knowledge')
+    expect(names).toContain('get_entity_timeline')
+    expect(names).toContain('get_related_entities')
   })
 
   it('每个工具都有非空描述与 object 类型 inputSchema', () => {

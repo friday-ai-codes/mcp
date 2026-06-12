@@ -1,5 +1,5 @@
 /**
- * Friday MCP 工具定义（19 个），与服务端 server/mcp_tools/serializers.py 对齐。
+ * Friday MCP 工具定义（22 个），与服务端 server/mcp_tools/serializers.py 对齐。
  *
  * 每个工具对应一个 HTTP 端点 POST {baseUrl}/api/mcp/tools/{name}/。
  * inputSchema 为 JSON Schema（MCP 标准），字段约束镜像 DRF serializer。
@@ -320,6 +320,55 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         symbol_hints: strList('符号名提示（<=50 个）'),
         limit: int('返回上限', { min: 1, max: 20, default: 5 }),
       },
+    },
+  },
+  {
+    name: 'search_delivery_knowledge',
+    description: '在交付知识图谱中检索相似历史需求 / 方案 / 代码变更（向量召回 + 图扩散 + 时间衰减），返回带出处与关联实体的结果。问"以前做过类似需求吗"用这个。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: str('需求 / 问题描述（<=4000 字符）'),
+        top_k: int('返回结果数', { min: 1, max: 20, default: 5 }),
+        project_ids: strList('限定项目 ID 列表（<=50 个，可选，只能收窄权限范围）'),
+        repository_ids: strList('限定仓库 ID 列表（<=50 个，可选）'),
+        entity_kinds: strList('实体类型过滤（work_item / tech_plan / code_change / document，<=20 个，可选）'),
+        as_of: str('历史时点查询（ISO8601，可选，如 "2026-05-01T00:00:00+08:00"）'),
+        include_superseded: bool('是否包含被取代的旧版本（标注 superseded by vN）', false),
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'get_entity_timeline',
+    description: '查询知识实体的完整迭代轨迹：方案 v1→vN 与各次编码按时间排序的时间线（纯版本链，不依赖向量库）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entity_id: uuid('知识实体 UUID（来自 search_delivery_knowledge 结果）'),
+        include_superseded: bool('是否包含被取代的旧版本', false),
+        as_of: str('历史时点查询（ISO8601，可选）'),
+      },
+      required: ['entity_id'],
+    },
+  },
+  {
+    name: 'get_related_entities',
+    description: '从任一知识实体出发查看关联上下游（需求→方案→代码变更→MR，反向亦可），1-3 跳图遍历。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entity_id: uuid('知识实体 UUID'),
+        direction: {
+          type: 'string',
+          enum: ['both', 'out', 'in'],
+          default: 'both',
+          description: '遍历方向：out 下游 / in 上游 / both 双向',
+        },
+        max_hops: int('遍历跳数', { min: 1, max: 3, default: 2 }),
+        as_of: str('历史时点查询（ISO8601，可选）'),
+      },
+      required: ['entity_id'],
     },
   },
 ]
