@@ -6,6 +6,19 @@
  * 服务端是校验唯一真源，schema 漂移时以服务端 400 错误为准。
  */
 
+export interface FridayToolAnnotations {
+  /** 人类可读短标题（中文，带「阶段 · 动作」分组标注）。 */
+  title: string
+  /** 只读：不修改任何 Friday / 外部系统状态。 */
+  readOnlyHint?: boolean
+  /** 破坏性：可能不可逆地删除/覆盖数据（Friday 工具均为非破坏性）。 */
+  destructiveHint?: boolean
+  /** 幂等：同参重复调用与调用一次效果一致。 */
+  idempotentHint?: boolean
+  /** 开放世界：会触达 Friday 之外的外部系统（Git 平台 / 飞书）。 */
+  openWorldHint?: boolean
+}
+
 export interface FridayToolDefinition {
   name: string
   description: string
@@ -372,3 +385,72 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
     },
   },
 ]
+
+// ---------------------------------------------------------------------------
+// 工具注解（MCP annotations）：按「阶段 · 动作」分组的中文短标题 + 行为提示。
+//
+// 三档行为画像：
+// - 查询类：readOnly + idempotent（route/get/list/search/find/timeline/related）
+// - 生成类：写 Friday 内部记录但非破坏、不触达外部（analyze/create_plan/
+//   improve_plan/summarize/learning_case/technical_plan/repo_tasks）
+// - 执行类：触达外部系统——推分支、建 MR、回写飞书（openWorld）
+// ---------------------------------------------------------------------------
+
+const query = (title: string): FridayToolAnnotations => ({
+  title,
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+})
+const generator = (title: string): FridayToolAnnotations => ({
+  title,
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+})
+const executor = (title: string): FridayToolAnnotations => ({
+  title,
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: true,
+})
+
+export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
+  // 仓库发现
+  route_repositories: query('仓库 · 路由发现'),
+  get_repository: query('仓库 · 元数据与索引状态'),
+  list_repository_files: query('仓库 · 目录浏览'),
+  get_repository_file: query('仓库 · 读取文件'),
+  // 分析
+  search_rag_chunks: query('分析 · GraphRAG 混合检索'),
+  find_related_chunks: query('分析 · 图谱关系扩散'),
+  analyze_repository: generator('分析 · 结构化仓库分析'),
+  // 计划
+  create_coding_plan: generator('计划 · 生成编码计划'),
+  improve_coding_plan: generator('计划 · 修订编码计划'),
+  // 执行与交付
+  execute_coding_plan: executor('执行 · 运行编码计划（长耗时，需用户确认）'),
+  get_coding_execution: query('执行 · 查询执行状态与产物'),
+  summarize_branch: generator('交付 · 分支摘要与 MR 草稿'),
+  create_merge_request: executor('交付 · 创建 PR/MR'),
+  // 飞书闭环
+  get_feishu_work_item_context: {
+    title: '飞书 · 聚合工作项上下文',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true, // 读取飞书外部系统
+  },
+  create_feishu_technical_plan: executor('飞书 · 生成技术方案并回写'),
+  create_work_item_repo_tasks: generator('飞书 · 拆解多仓任务矩阵'),
+  execute_work_item_repo_tasks: executor('飞书 · 批量执行与回写（长耗时，需用户确认）'),
+  // 记忆与知识
+  create_learning_case: generator('记忆 · 沉淀学习案例'),
+  search_learning_cases: query('记忆 · 检索学习案例'),
+  search_delivery_knowledge: query('知识 · 交付知识检索'),
+  get_entity_timeline: query('知识 · 实体版本时间线'),
+  get_related_entities: query('知识 · 关联实体遍历'),
+}

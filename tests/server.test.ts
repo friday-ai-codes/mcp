@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MISSING_CONFIG_MESSAGE } from '../src/config.js'
 import { callFridayTool, RunContext } from '../src/server.js'
-import { FRIDAY_TOOLS } from '../src/tools.js'
+import { FRIDAY_TOOLS, TOOL_ANNOTATIONS } from '../src/tools.js'
 
 const CONFIG = { baseUrl: 'https://friday.internal', accessToken: 'secret-pat' }
 
@@ -35,6 +35,17 @@ describe('fRIDAY_TOOLS', () => {
       expect(tool.description.length).toBeGreaterThan(10)
       expect(tool.inputSchema.type).toBe('object')
     }
+  })
+
+  it('每个工具都有 annotations（中文 title + 行为提示），且无多余条目', () => {
+    for (const tool of FRIDAY_TOOLS) {
+      const annotations = TOOL_ANNOTATIONS[tool.name]
+      expect(annotations, `missing annotations for ${tool.name}`).toBeDefined()
+      expect(annotations!.title).toContain(' · ')
+      expect(typeof annotations!.readOnlyHint).toBe('boolean')
+      expect(annotations!.destructiveHint).toBe(false)
+    }
+    expect(Object.keys(TOOL_ANNOTATIONS).sort()).toEqual(FRIDAY_TOOLS.map(t => t.name).sort())
   })
 })
 

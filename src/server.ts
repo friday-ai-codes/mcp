@@ -19,7 +19,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import type { FridayConfig } from './config.js'
 import { MISSING_CONFIG_MESSAGE, resolveConfig } from './config.js'
-import { FRIDAY_TOOLS } from './tools.js'
+import { FRIDAY_TOOLS, TOOL_ANNOTATIONS } from './tools.js'
 
 export const SERVER_NAME = 'friday'
 export const SERVER_VERSION = '0.1.0'
@@ -127,8 +127,10 @@ export function createServer(): Server {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: FRIDAY_TOOLS.map(t => ({
       name: t.name,
+      title: TOOL_ANNOTATIONS[t.name]?.title,
       description: t.description,
       inputSchema: t.inputSchema,
+      annotations: TOOL_ANNOTATIONS[t.name],
     })),
   }))
 
