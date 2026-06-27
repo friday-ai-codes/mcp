@@ -1,0 +1,51 @@
+name: Publish to npm
+
+# 自动发包：推送到 main 且 package.json 版本号有变化（npm 上不存在该版本）时，
+# 自动构建并发布到 npm。也可在 Actions 页手动触发（workflow_dispatch）。
+#
+# 前置：在仓库 Settings → Secrets and variables → Actions 添加 `NPM_TOKEN`
+#       （npm 账号的 Automation/Publish token）。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish if version bumped
+        run: |
+          set -e
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Checking $NAME@$VERSION ..."
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$NAME@$VERSION already on npm — skipping publish."
+            exit 0
+          fi
+          echo "Publishing $NAME@$VERSION ..."
+          pnpm publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
