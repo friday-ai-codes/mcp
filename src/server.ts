@@ -22,7 +22,7 @@ import { MISSING_CONFIG_MESSAGE, resolveConfig } from './config.js'
 import { FRIDAY_TOOLS, TOOL_ANNOTATIONS } from './tools.js'
 
 export const SERVER_NAME = 'friday'
-export const SERVER_VERSION = '0.1.0'
+export const SERVER_VERSION = '0.2.0'
 
 const REQUEST_TIMEOUT_MS = 120_000
 

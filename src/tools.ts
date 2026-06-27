@@ -1,5 +1,5 @@
 /**
- * Friday MCP 工具定义（23 个），与服务端 server/mcp_tools/serializers.py 对齐。
+ * Friday MCP 工具定义（29 个），与服务端 server/mcp_tools/serializers.py 对齐。
  *
  * 每个工具对应一个 HTTP 端点 POST {baseUrl}/api/mcp/tools/{name}/。
  * inputSchema 为 JSON Schema（MCP 标准），字段约束镜像 DRF serializer。
@@ -414,6 +414,90 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       required: ['entity_id'],
     },
   },
+  // ── 项目上下文环路（按当前分支召回 → 编码 → 上报，跨分支跨项目通用）──────────
+  {
+    name: 'lookup_project_by_branch',
+    description: '【开工第一步】用当前 git 分支名反查所属 Friday 项目并召回需求/工件/记忆上下文。matched=true 时把返回的 context 当作本次编码的事实依据，并记下 project（含 project_id）供后续 search/grep/read 工具使用；matched=false 时结合 candidates 人工确认，勿臆测。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        branch_name: str('当前 git 分支名（如 feat/xxxx-m123-slug）'),
+        repository_id: uuid('仓库 UUID（可选，跨仓同名分支时收窄定位）'),
+      },
+      required: ['branch_name'],
+    },
+  },
+  {
+    name: 'search_project_context',
+    description: '在某个 Friday 项目的交付上下文（需求/工件/记忆等实体）里做语义召回。project_id 通常来自 lookup_project_by_branch 的返回。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: uuid('Friday 项目 UUID（来自 lookup_project_by_branch）'),
+        query: str('检索语句（<=4000 字符）'),
+        top_k: int('返回条数', { min: 1, max: 20, default: 5 }),
+        entity_kinds: strList('实体类型过滤（<=20 个，空为全部）'),
+      },
+      required: ['project_id', 'query'],
+    },
+  },
+  {
+    name: 'grep_project',
+    description: '在某个 Friday 项目的交付上下文里做关键词精确匹配（与 search_project_context 语义召回互补）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: uuid('Friday 项目 UUID'),
+        query: str('关键词（<=1000 字符）'),
+        top_k: int('返回条数', { min: 1, max: 50, default: 10 }),
+      },
+      required: ['project_id', 'query'],
+    },
+  },
+  {
+    name: 'read_project_doc',
+    description: '读取项目工作区的单个结构化文档（如 MEMORY / STATE / 调研 / 里程碑 / 预检），返回渲染后的 markdown 与结构块。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: uuid('Friday 项目 UUID'),
+        doc_type: str('文档类型（如 memory / state / research / milestone / preflight）'),
+      },
+      required: ['project_id', 'doc_type'],
+    },
+  },
+  {
+    name: 'report_project_knowledge',
+    description: '【收工后】把本次产生的、对团队有价值的方案决策/经验教训沉淀回 Friday 项目记忆。不写死项目：传 branch_name 即可按当前分支自动定位唯一项目（也可显式传 project_id）。内容经服务端脱敏+质量门槛+审计回滚兜底。绝不上报任何凭证/密钥/token/个人敏感信息。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        content: str('提炼后的沉淀内容（<=20000 字符）'),
+        branch_name: str('当前 git 分支名（与 project_id 二选一；按分支自动定位项目）'),
+        project_id: uuid('Friday 项目 UUID（与 branch_name 二选一）'),
+        repository_id: uuid('仓库 UUID（可选，跨仓同名分支时收窄定位）'),
+        source_conversation_id: uuid('来源会话 UUID（可选）'),
+        writeback_mode: { type: 'string', enum: ['draft', 'active'], default: 'draft', description: 'draft 入草稿待确认 / active 直写生效（IDE 自动沉淀）' },
+        target: { type: 'string', enum: ['memory', 'research'], default: 'memory', description: '写入目标层' },
+        distill: bool('入库前是否经 LLM 精炼', false),
+      },
+      required: ['content'],
+    },
+  },
+  {
+    name: 'report_project_state',
+    description: '【收工后】把本次新增/改动的 API 结构化清单回写 Friday 项目 STATE。不写死项目：传 branch_name 即可按当前分支自动定位唯一项目（也可显式传 project_id）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        apis: dictList('API 清单（每项 {method, path, params?, status?}，<=200 条）'),
+        branch_name: str('当前 git 分支名（与 project_id 二选一）'),
+        project_id: uuid('Friday 项目 UUID（与 branch_name 二选一）'),
+        repository_id: uuid('仓库 UUID（可选，跨仓同名分支时收窄定位）'),
+      },
+      required: ['apis'],
+    },
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -484,4 +568,11 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   search_delivery_knowledge: query('知识 · 交付知识检索'),
   get_entity_timeline: query('知识 · 实体版本时间线'),
   get_related_entities: query('知识 · 关联实体遍历'),
+  // 项目上下文环路
+  lookup_project_by_branch: query('项目 · 按分支召回上下文（开工第一步）'),
+  search_project_context: query('项目 · 上下文语义检索'),
+  grep_project: query('项目 · 上下文关键词检索'),
+  read_project_doc: query('项目 · 读取工作区文档'),
+  report_project_knowledge: generator('项目 · 上报沉淀记忆（收工）'),
+  report_project_state: generator('项目 · 回写 API 状态清单（收工）'),
 }
