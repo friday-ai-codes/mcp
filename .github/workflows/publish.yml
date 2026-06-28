@@ -1,10 +1,13 @@
 name: Publish to npm
 
-# 自动发包：推送到 main 且 package.json 版本号有变化（npm 上不存在该版本）时，
-# 自动构建并发布到 npm。也可在 Actions 页手动触发（workflow_dispatch）。
+# 自动发包（零 token、零轮换）：推送到 main 且 package.json 版本号有变化（npm 上不存在该版本）
+# 时，构建后经 npm Trusted Publishing（OIDC）自动发布并生成 provenance。也可手动触发。
 #
-# 前置：在仓库 Settings → Secrets and variables → Actions 添加 `NPM_TOKEN`
-#       （npm 账号的 Automation/Publish token）。
+# 前置（一次性，在 npmjs.com 配置，无需任何 secret）：
+#   npmjs.com → 该包 → Settings → Trusted Publishers → 添加 GitHub Actions：
+#     Organization/Repository = friday-ai-codes/mcp
+#     Workflow filename       = publish.yml
+#   配好后本流程即可免 token 发布；npm 细粒度 token「读写最多 90 天」的限制就此绕开。
 on:
   push:
     branches: [main]
@@ -12,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # OIDC：用于 npm Trusted Publishing（免 token）
 
 jobs:
   publish:
@@ -25,9 +29,14 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://registry.npmjs.org
           cache: pnpm
+
+      # Trusted Publishing（OIDC）需要 npm >= 11.5.1（Node 22 自带 npm 10，需升级）。
+      # 构建用 pnpm，发布用 npm CLI（其 OIDC 支持最稳）。
+      - name: Upgrade npm (OIDC trusted publishing)
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -45,7 +54,5 @@ jobs:
             echo "::notice::$NAME@$VERSION already on npm — skipping publish."
             exit 0
           fi
-          echo "Publishing $NAME@$VERSION ..."
-          pnpm publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          echo "Publishing $NAME@$VERSION via OIDC trusted publishing ..."
+          npm publish --access public
