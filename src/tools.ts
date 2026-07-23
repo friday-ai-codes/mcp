@@ -174,6 +174,21 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
     },
   },
   {
+    name: 'reverse_lookup_requirements',
+    description: '证据→需求反查：已知代码位置（repository_id + file_path/line 或 chunk_id），反查它关联的需求（related_work_items）、文档（related_documents）与追溯路径（paths）。回答「这段代码是为哪个需求/方案改的」「改这里会影响哪些已交付需求」时用。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repository_id: uuid('仓库 UUID'),
+        file_path: str('代码文件路径（相对仓库根；与 chunk_id 二选一）'),
+        line: int('行号（1-based，可选，配合 file_path 收窄定位）', { min: 1 }),
+        chunk_id: uuid('起点 chunk UUID（与 file_path 二选一）'),
+        branch: str('分支名，省略用默认分支'),
+      },
+      required: ['repository_id'],
+    },
+  },
+  {
     name: 'analyze_repository',
     description: '对仓库做结构化分析（架构、风险、测试建议），可带 focus 聚焦特定主题，返回 analysis_id 供 create_coding_plan 复用证据。',
     inputSchema: {
@@ -542,6 +557,7 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   search_rag_chunks: query('分析 · GraphRAG 混合检索'),
   grep_repository: query('分析 · 精确文本检索（grep）'),
   find_related_chunks: query('分析 · 图谱关系扩散'),
+  reverse_lookup_requirements: query('分析 · 代码反查需求'),
   analyze_repository: generator('分析 · 结构化仓库分析'),
   // 计划
   create_coding_plan: generator('计划 · 生成编码计划'),
