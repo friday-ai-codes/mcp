@@ -17,10 +17,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('fRIDAY_TOOLS', () => {
-  it('定义了与服务端一致的 30 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(30)
+  it('定义了与服务端一致的 33 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(33)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(30)
+    expect(new Set(names).size).toBe(33)
     expect(names).toContain('route_repositories')
     expect(names).toContain('grep_repository')
     expect(names).toContain('execute_coding_plan')
@@ -37,6 +37,10 @@ describe('fRIDAY_TOOLS', () => {
     expect(names).toContain('read_project_doc')
     expect(names).toContain('report_project_knowledge')
     expect(names).toContain('report_project_state')
+    // feature list 技术方案两段式（create 必须配 confirm，get 轮询取方案）
+    expect(names).toContain('create_feature_tech_plan')
+    expect(names).toContain('confirm_feature_tech_plan')
+    expect(names).toContain('get_feature_tech_plan')
   })
 
   it('每个工具都有非空描述与 object 类型 inputSchema', () => {

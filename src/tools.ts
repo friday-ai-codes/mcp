@@ -482,6 +482,44 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
     },
   },
   {
+    name: 'create_feature_tech_plan',
+    description: '【第 1 步 / 共 3 步】由 feature list 发起技术方案生成：判定每个功能点是新增还是改造已有功能，并给出关联仓库建议。**本步不产出方案**，只返回待用户确认的问题（questions）+ 分类结果，status=awaiting_confirmation。必须把 questions 原样呈现给用户、拿到答复后调 confirm_feature_tech_plan 才会继续。取数三选一：project_id（项目已录入的 feature list）/ branch_name（按分支反查项目）/ feature_list_text（直接贴原文）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: uuid('Friday 项目 UUID（三选一）'),
+        branch_name: str('当前 git 分支名（三选一；按已绑定分支反查项目）'),
+        repository_id: uuid('仓库 UUID（可选，跨仓同名分支时收窄定位）'),
+        feature_list_text: str('feature list 原文（三选一，<=200000 字符）'),
+        repository_ids: { type: 'array', items: { type: 'string', format: 'uuid' }, description: '候选仓库范围收窄（<=20 个，可选；最终选仓仍须用户确认）' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'confirm_feature_tech_plan',
+    description: '【第 2 步 / 共 3 步】提交用户对关联仓库与功能点分类的确认答复，继续编排。answers 为 [{question_id, selected, freeform_text}]；未覆盖的题按推荐值兜底。返回 status=researching（调研在途，去轮询 get_feature_tech_plan）或 completed（方案已出）。严禁在未向用户展示 questions、未取得真实答复的情况下调用本工具。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session_id: uuid('create_feature_tech_plan 返回的会话 UUID'),
+        answers: dictList('确认答复 [{question_id, selected, freeform_text}]（<=20 条；留空表示全部按推荐执行）'),
+      },
+      required: ['session_id'],
+    },
+  },
+  {
+    name: 'get_feature_tech_plan',
+    description: '【第 3 步 / 共 3 步】查询方案状态并推进编排。调研阶段是异步的，须轮询本工具直到 status=completed，此时 markdown 字段即完整技术方案（整体方案 + 分仓方案 + 落点文件 + 伪代码），plan 为结构化 MergedPlan。status=failed 时读 error。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session_id: uuid('方案会话 UUID'),
+      },
+      required: ['session_id'],
+    },
+  },
+  {
     name: 'report_project_knowledge',
     description: '【收工后】把本次产生的、对团队有价值的方案决策/经验教训沉淀回 Friday 项目记忆。不写死项目：传 branch_name 即可按当前分支自动定位唯一项目（也可显式传 project_id）。内容经服务端脱敏+质量门槛+审计回滚兜底。绝不上报任何凭证/密钥/token/个人敏感信息。',
     inputSchema: {
@@ -591,4 +629,8 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   read_project_doc: query('项目 · 读取工作区文档'),
   report_project_knowledge: generator('项目 · 上报沉淀记忆（收工）'),
   report_project_state: generator('项目 · 回写 API 状态清单（收工）'),
+  // feature list 技术方案（两段式：create 必须配 confirm，单次调用拿不到方案）
+  create_feature_tech_plan: generator('方案 · 发起 feature list 技术方案（出待确认项）'),
+  confirm_feature_tech_plan: generator('方案 · 确认关联仓库与分类并继续'),
+  get_feature_tech_plan: query('方案 · 查询状态 / 取回完整方案'),
 }
