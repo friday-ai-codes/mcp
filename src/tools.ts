@@ -1,5 +1,5 @@
 /**
- * Friday MCP 工具定义（29 个），与服务端 server/mcp_tools/serializers.py 对齐。
+ * Friday MCP 工具定义（37 个），与服务端 server/mcp_tools/serializers.py 对齐。
  *
  * 每个工具对应一个 HTTP 端点 POST {baseUrl}/api/mcp/tools/{name}/。
  * inputSchema 为 JSON Schema（MCP 标准），字段约束镜像 DRF serializer。
@@ -551,6 +551,59 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       required: ['apis'],
     },
   },
+  {
+    name: 'get_technical_blueprint',
+    description: '【蓝图取件】按 artifact_id 续取技术蓝图：返回当前状态 current_status、六段摘要 sections（repo_associations / current_state_analysis / implementation_overview / api_contracts / impact_analysis / interaction_flows，每段 {count, titles}）、完整 markdown（未确认的蓝图首行带「未经确认」标注）与待澄清清单 pending_clarifications。蓝图开关打开时 create_feishu_technical_plan 立即回 status=partial + blueprint_artifact_id，之后轮询本工具取件；pending_clarifications 非空时先逐条调 answer_blueprint_clarification 作答，再回来续取终稿。⛔ 没有单独的待澄清列表工具——清单内联在本工具响应里。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifact_id: str('蓝图 artifact ID（<=64 字符；取自 create_feishu_technical_plan 的 blueprint_artifact_id）'),
+      },
+      required: ['artifact_id'],
+    },
+  },
+  {
+    name: 'answer_blueprint_clarification',
+    description: '【蓝图作答】对 get_technical_blueprint 返回的单条待澄清线程作答，服务端同请求回灌蓝图并返回 reflow（新版本号与冲突块）。逐条调用：一次只答一个 thread_id，答完再调 get_technical_blueprint 续取终稿。必须先把澄清题原样呈现给用户、拿到真实答复再调。⛔ 不能对 AI 评审 finding 线程作答（一律 400 not_answerable，线程状态一字不变）；蓝图已确认（不可编辑）时一律 400 not_editable。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        thread_id: str('待澄清线程 ID（<=64 字符；取自 pending_clarifications）'),
+        body: str('作答正文（用户的真实答复）'),
+        artifact_id: str('蓝图 artifact ID（可选，仅作二次校验：传了就必须与线程实际归属一致）'),
+      },
+      required: ['thread_id', 'body'],
+    },
+  },
+  {
+    name: 'read_blueprint_context',
+    description: '【容器内】读取本蓝图会话的共享上下文总线：拉取并行仓容器已写入的接口契约 / 现状结论 / 决策，避免各仓重复调研或按臆测的接口续作。目标会话由任务 token 服务端解析，⛔ 无任何会话入参（结构上读不到别人的会话）。轮询时把上次返回的 max_seq 作 since_seq 传回即可只取新增条目；无参调用 = 拉本会话全部 active 条目。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key_prefix: str('按条目 key 前缀过滤（<=200 字符，可选；如 repo:{repository_id}.）'),
+        kind: { type: 'string', enum: ['finding', 'api_surface', 'contract', 'decision', 'dependency_claim', 'question'], description: '按条目类型过滤（可选，留空不过滤）' },
+        repository_id: str('按产出仓过滤（<=64 字符，可选）'),
+        since_seq: int('增量游标：只取 seq 大于该值的条目（传上次返回的 max_seq）', { min: 0, default: 0 }),
+        limit: int('单次返回条目数上限', { min: 1, max: 200, default: 50 }),
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'report_blueprint_context',
+    description: '【容器内】把本仓产出的接口契约 / 关键现状 / 决策写入本蓝图会话的共享上下文总线，写入即对所有并行仓容器可见，并唤醒在等这个 key 的仓续作。目标会话由任务 token 服务端解析，⛔ 无任何会话入参。repository_id 一律由服务端权威覆写（请求体上报值不采信），且 repo: 前缀的 key 必须属于本仓，否则 403 key_not_owned。content 必须是 JSON 对象（不接受数组/标量），入库前递归脱敏——⛔ 绝不写入任何凭证/密钥/token。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: str('条目键（<=200 字符；跨仓契约用 repo:{repository_id}.api_surface 这类前缀，须属于本仓）'),
+        kind: { type: 'string', enum: ['finding', 'api_surface', 'contract', 'decision', 'dependency_claim', 'question'], description: '条目类型' },
+        repository_id: str('产出仓 UUID（可选；服务端权威覆写，保留仅为兼容老镜像）'),
+        content: { type: 'object', description: '条目正文（必须是 JSON 对象，嵌套 <=32 层；入库前递归脱敏）' },
+      },
+      required: ['key', 'kind', 'content'],
+    },
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -633,4 +686,10 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   create_feature_tech_plan: generator('方案 · 发起 feature list 技术方案（出待确认项）'),
   confirm_feature_tech_plan: generator('方案 · 确认关联仓库与分类并继续'),
   get_feature_tech_plan: query('方案 · 查询状态 / 取回完整方案'),
+  // 蓝图异步澄清协议（立即回 pending → 逐条作答 → 续取终稿；⛔ 无第三个 list 工具）
+  get_technical_blueprint: query('蓝图 · 续取终稿与待澄清清单'),
+  answer_blueprint_clarification: generator('蓝图 · 逐条作答澄清'),
+  // 蓝图共享上下文总线（容器内：会话由任务 token 解析，无会话入参）
+  read_blueprint_context: query('蓝图 · 读共享上下文总线'),
+  report_blueprint_context: generator('蓝图 · 写共享上下文总线'),
 }
