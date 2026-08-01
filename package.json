@@ -1,6 +1,6 @@
 {
   "name": "@friday-ai-codes/mcp",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Friday AI MCP server — expose Friday code intelligence, Graph RAG, coding plan and MR tools to Cursor / Claude Code / Codex via Model Context Protocol",
   "keywords": [
     "mcp",
