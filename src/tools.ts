@@ -1,5 +1,5 @@
 /**
- * Friday MCP 工具定义（37 个），与服务端 server/mcp_tools/serializers.py 对齐。
+ * Friday MCP 工具定义（42 个），与服务端 server/mcp_tools/serializers.py 对齐。
  *
  * 每个工具对应一个 HTTP 端点 POST {baseUrl}/api/mcp/tools/{name}/。
  * inputSchema 为 JSON Schema（MCP 标准），字段约束镜像 DRF serializer。
@@ -604,6 +604,77 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       required: ['key', 'kind', 'content'],
     },
   },
+  // ── 蓝图环节单跑（stage sandbox）：路由 / 规格 / 调研可基于上游产物单独跑 ────────
+  {
+    name: 'route_blueprint_repos',
+    description: '【环节单跑】三分量蓝图仓库路由（能力树 + 仓库章程 + 历史落点融合，与正式技术方案编排同源）。区别于粗版 route_repositories：返回逐候选 breakdown 证据与 role_suggestion；项目有手动绑定仓库时默认按绑定固定路由（router_version=project_binding），传 ignore_pin=true 可绕过绑定看自动路由的真实输出。dry-run 零落库——结果只是提案，采纳与否由用户经 apply_repo_association 决定。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requirement_text: str('需求原文（<=8000 字符；与 requirement_spec 至少给一个）'),
+        requirement_spec: { type: 'object', description: '上游产物 requirement_spec（含 goal / feature_points，可来自 generate_requirement_spec 输出）' },
+        project_id: uuid('Friday 项目 UUID（可选：用于候选范围与固定路由 pin 解析）'),
+        include_repository_ids: strList('显式候选仓库 UUID 列表（<=50 个，可选；缺省按项目空间仓库集，再缺省全库）'),
+        exclude_repository_ids: strList('排除仓库 UUID 列表（<=50 个，可选）'),
+        ignore_pin: bool('是否绕过项目手动绑定的固定路由短路（对比人工绑定 vs 自动路由）', false),
+        top_k: int('候选数上限', { min: 1, max: 10, default: 5 }),
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'generate_requirement_spec',
+    description: '【环节单跑】需求规格生成：需求原文 → 功能点拆分（LLM，或直接采用传入的 feature_points）→ intent 分类补齐 → 四维歧义打分（目标/边界/约束/验收）。返回 requirement_spec（可直接作 route_blueprint_repos / start_repo_research 的上游输入）与 ambiguity 报告（含澄清问题清单——单跑不开澄清线程，问题直接返回，补答后经 prior_context 重跑）。dry-run 零落库。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requirement_text: str('需求原文（<=20000 字符）'),
+        feature_points: dictList('直采功能点列表（每项 {title, intent?, module?, layer?}，<=200 条；非空即跳过 LLM 拆分）'),
+        prior_context: str('已答澄清结论（<=8000 字符，可选；重跑时把上一轮问题的答复拼进来）'),
+        assumptions_tier: { type: 'string', enum: ['strict', 'balanced', 'assume_more'], description: '歧义判定档位（可选，缺省 balanced）' },
+        classify_intents: bool('是否对缺 intent 的功能点跑 LLM 分类', true),
+      },
+      required: ['requirement_text'],
+    },
+  },
+  {
+    name: 'start_repo_research',
+    description: '【环节单跑】对显式仓库集发起沙箱调研（复用技术方案编排的调研链）：role=direct 的仓起隔离容器深调研（评估适配度 fitness、调研现状，约数分钟到 30 分钟），role=indirect 的仓服务端轻量合成；无在线 runner 时深调研自动降级轻量合成（degraded=true）。返回 session_id 供 get_repo_research 轮询。结果只是提案，不会写回项目关联仓库或技术方案。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requirement_text: str('需求原文（<=20000 字符）'),
+        requirement_spec: { type: 'object', description: '上游 requirement_spec（可选，来自 generate_requirement_spec；提供后调研 prompt 按功能点展开）' },
+        project_id: uuid('Friday 项目 UUID（可选：调研容器按项目手动绑定分支 checkout）'),
+        repositories: dictList('调研仓库列表（每项 {repository_id, role?: direct|indirect, confidence?: high|medium|low}，<=10 个）'),
+      },
+      required: ['requirement_text', 'repositories'],
+    },
+  },
+  {
+    name: 'get_repo_research',
+    description: '【环节单跑】轮询沙箱调研结果：逐仓任务状态（pending/running/done/failed）与结构化调研结论（research_summary / fitness / findings / proposed_changes 等）。all_terminal=true 表示全部任务终态。仅会话创建者可读。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session_id: uuid('start_repo_research 返回的沙箱会话 UUID'),
+      },
+      required: ['session_id'],
+    },
+  },
+  {
+    name: 'apply_repo_association',
+    description: '【采纳写回】把用户选定的仓库集绑定/解绑到项目（ProjectBranch，source=manual；绑定后会固定后续技术方案路由）。这是环节单跑家族唯一的写回路径——route_blueprint_repos / start_repo_research 的结果永远只是提案，必须把候选清单呈现给用户、拿到明确裁决后才调本工具。branch_name 缺省取仓库默认分支；仅项目成员可调（非成员 403）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: uuid('Friday 项目 UUID'),
+        action: { type: 'string', enum: ['bind', 'unbind'], default: 'bind', description: 'bind 绑定 / unbind 解绑' },
+        bindings: dictList('仓库清单（每项 {repository_id, branch_name?}，<=20 个；branch_name 缺省取仓库默认分支）'),
+      },
+      required: ['project_id', 'bindings'],
+    },
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -692,4 +763,10 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   // 蓝图共享上下文总线（容器内：会话由任务 token 解析，无会话入参）
   read_blueprint_context: query('蓝图 · 读共享上下文总线'),
   report_blueprint_context: generator('蓝图 · 写共享上下文总线'),
+  // 蓝图环节单跑（stage sandbox）：dry-run 提案面 + 唯一采纳写回
+  route_blueprint_repos: query('环节 · 三分量仓库路由单跑（dry-run）'),
+  generate_requirement_spec: query('环节 · 需求规格与歧义打分单跑（dry-run）'),
+  start_repo_research: generator('环节 · 发起沙箱仓库调研'),
+  get_repo_research: query('环节 · 轮询沙箱调研结果'),
+  apply_repo_association: executor('环节 · 采纳写回项目关联仓库（需用户确认）'),
 }

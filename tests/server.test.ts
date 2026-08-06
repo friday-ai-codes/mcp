@@ -17,10 +17,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('fRIDAY_TOOLS', () => {
-  it('定义了与服务端一致的 37 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(37)
+  it('定义了与服务端一致的 42 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(42)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(37)
+    expect(new Set(names).size).toBe(42)
     expect(names).toContain('route_repositories')
     expect(names).toContain('grep_repository')
     expect(names).toContain('execute_coding_plan')
@@ -46,6 +46,12 @@ describe('fRIDAY_TOOLS', () => {
     expect(names).toContain('answer_blueprint_clarification')
     expect(names).toContain('read_blueprint_context')
     expect(names).toContain('report_blueprint_context')
+    // 蓝图环节单跑（stage sandbox）：dry-run 提案面 + 唯一采纳写回
+    expect(names).toContain('route_blueprint_repos')
+    expect(names).toContain('generate_requirement_spec')
+    expect(names).toContain('start_repo_research')
+    expect(names).toContain('get_repo_research')
+    expect(names).toContain('apply_repo_association')
   })
 
   it('每个工具都有非空描述与 object 类型 inputSchema', () => {
