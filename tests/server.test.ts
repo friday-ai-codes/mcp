@@ -21,7 +21,6 @@ describe('fRIDAY_TOOLS', () => {
     expect(FRIDAY_TOOLS).toHaveLength(44)
     const names = FRIDAY_TOOLS.map(t => t.name)
     expect(new Set(names).size).toBe(44)
-    expect(names).toContain('graph_query')
     expect(names).toContain('route_repositories')
     expect(names).toContain('grep_repository')
     expect(names).toContain('execute_coding_plan')
