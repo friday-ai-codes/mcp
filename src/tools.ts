@@ -1,5 +1,5 @@
 /**
- * Friday MCP 工具定义（42 个），与服务端 server/mcp_tools/serializers.py 对齐。
+ * Friday MCP 工具定义（44 个），与服务端 server/mcp_tools/serializers.py 对齐。
  *
  * 每个工具对应一个 HTTP 端点 POST {baseUrl}/api/mcp/tools/{name}/。
  * inputSchema 为 JSON Schema（MCP 标准），字段约束镜像 DRF serializer。
@@ -553,7 +553,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   },
   {
     name: 'get_technical_blueprint',
-    description: '【蓝图取件】按 artifact_id 续取技术蓝图：返回当前状态 current_status、六段摘要 sections（repo_associations / current_state_analysis / implementation_overview / api_contracts / impact_analysis / interaction_flows，每段 {count, titles}）、完整 markdown（未确认的蓝图首行带「未经确认」标注）与待澄清清单 pending_clarifications。蓝图开关打开时 create_feishu_technical_plan 立即回 status=partial + blueprint_artifact_id，之后轮询本工具取件；pending_clarifications 非空时先逐条调 answer_blueprint_clarification 作答，再回来续取终稿。⛔ 没有单独的待澄清列表工具——清单内联在本工具响应里。',
+    description: '【蓝图取件】按 artifact_id 续取技术蓝图：返回当前状态、不可变 artifact_version_id/content_hash、六段摘要、完整 Friday markdown（未确认的蓝图首行带「未经确认」标注）与待澄清清单。必须原样展示 question/options；pending_clarifications 非空时逐条调用 answer_blueprint_clarification 后再续取。⛔ 没有单独的待澄清列表工具——清单内联在本工具响应里。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -573,6 +573,35 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         artifact_id: str('蓝图 artifact ID（可选，仅作二次校验：传了就必须与线程实际归属一致）'),
       },
       required: ['thread_id', 'body'],
+    },
+  },
+  {
+    name: 'approve_technical_blueprint',
+    description: '【蓝图最终确认】仅在人类明确批准后调用。提交 get_technical_blueprint 刚读取的 artifact_version_id 与 content_hash，Friday 在同一事务中确认它们仍是当前版本、无未决阻塞线程后才转 confirmed，并返回 Friday 原始 markdown 与编码交接。版本已变化时返回 stale，必须重新展示后再审批。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifact_id: str('技术蓝图 artifact ID'),
+        artifact_version_id: uuid('get_technical_blueprint 返回的当前版本 ID'),
+        content_hash: str('get_technical_blueprint 返回的 64 位 SHA-256 内容 hash'),
+        technical_plan_id: uuid('create_feishu_technical_plan 返回的技术方案 ID'),
+      },
+      required: ['artifact_id', 'artifact_version_id', 'content_hash', 'technical_plan_id'],
+    },
+  },
+  {
+    name: 'request_technical_blueprint_changes',
+    description: '【蓝图退回】将人类的修改意见交给 Friday canonical rework 流程；它创建新版本、重开相应阶段并阻断编码。不要由 Agent 直接改写方案正文。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifact_id: str('技术蓝图 artifact ID'),
+        comment: str('人类的退回意见（<=8000 字符，可选）'),
+        anchor: { type: 'object', description: '可选：意见锚点（block_id / section_path 等）' },
+        rework_scope: { type: 'string', enum: ['review', 'merge', 'repos', 'full'], default: 'merge', description: '返工范围' },
+        rework_repository_ids: { type: 'array', items: { type: 'string', format: 'uuid' }, description: 'rework_scope=repos 时要重跑的仓库 UUID 列表' },
+      },
+      required: ['artifact_id'],
     },
   },
   {
@@ -760,6 +789,8 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   // 蓝图异步澄清协议（立即回 pending → 逐条作答 → 续取终稿；⛔ 无第三个 list 工具）
   get_technical_blueprint: query('蓝图 · 续取终稿与待澄清清单'),
   answer_blueprint_clarification: generator('蓝图 · 逐条作答澄清'),
+  approve_technical_blueprint: executor('蓝图 · 最终确认并生成编码交接'),
+  request_technical_blueprint_changes: generator('蓝图 · 退回并重开返工'),
   // 蓝图共享上下文总线（容器内：会话由任务 token 解析，无会话入参）
   read_blueprint_context: query('蓝图 · 读共享上下文总线'),
   report_blueprint_context: generator('蓝图 · 写共享上下文总线'),
