@@ -555,7 +555,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   },
   {
     name: 'get_technical_blueprint',
-    description: '【蓝图取件】按 artifact_id 续取技术蓝图：返回当前状态、不可变 artifact_version_id/content_hash、六段摘要、完整 Friday markdown（未确认的蓝图首行带「未经确认」标注）与待澄清清单。必须原样展示 question/options；pending_clarifications 非空时逐条调用 answer_blueprint_clarification 后再续取。⛔ 没有单独的待澄清列表工具——清单内联在本工具响应里。',
+    description: '【蓝图取件】按 artifact_id 续取技术蓝图：返回 Friday project_id、当前状态、不可变 artifact_version_id/content_hash、六段摘要、完整 Friday markdown（未确认的蓝图首行带「未经确认」标注）与待澄清清单。必须核对 project_id，并原样展示 question/options；pending_clarifications 非空时逐条调用 answer_blueprint_clarification 后再续取。⛔ 没有单独的待澄清列表工具——清单内联在本工具响应里。',
     inputSchema: {
       type: 'object',
       properties: {
