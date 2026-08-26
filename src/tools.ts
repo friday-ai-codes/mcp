@@ -313,6 +313,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       properties: {
         context_id: uuid('get_feishu_work_item_context 返回的 context UUID'),
         idempotency_key: str('稳定事件 ID（<=128 字符）；超时重试必须复用同一 key，避免重复创建蓝图'),
+        blueprint_project_id: uuid('工作项对应的 Friday Project UUID；项目跟踪入口应显式传入以避免 Space 内多项目串线'),
         repository_ids: { type: 'array', items: { type: 'string', format: 'uuid' }, description: '限定仓库 UUID 列表（<=10 个，可选）' },
         repo_hints: strList('仓库提示词（<=20 个，可选，辅助路由）'),
         context_chunks: dictList('补充代码证据 chunk（<=30 条）'),
