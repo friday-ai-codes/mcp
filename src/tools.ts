@@ -1,5 +1,5 @@
 /**
- * Friday MCP 工具定义（37 个），与服务端 server/mcp_tools/serializers.py 对齐。
+ * Friday MCP 工具定义（51 个），与服务端 server/mcp_tools/serializers.py 对齐。
  *
  * 每个工具对应一个 HTTP 端点 POST {baseUrl}/api/mcp/tools/{name}/。
  * inputSchema 为 JSON Schema（MCP 标准），字段约束镜像 DRF serializer。
@@ -34,6 +34,13 @@ const int = (description: string, opts: { min?: number, max?: number, default?: 
   ...(opts.max !== undefined ? { maximum: opts.max } : {}),
   ...(opts.default !== undefined ? { default: opts.default } : {}),
 })
+const number = (description: string, opts: { min?: number, max?: number, default?: number } = {}) => ({
+  type: 'number',
+  description,
+  ...(opts.min !== undefined ? { minimum: opts.min } : {}),
+  ...(opts.max !== undefined ? { maximum: opts.max } : {}),
+  ...(opts.default !== undefined ? { default: opts.default } : {}),
+})
 const bool = (description: string, def?: boolean) => ({
   type: 'boolean',
   description,
@@ -51,6 +58,27 @@ const dictList = (description: string) => ({
 })
 
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
+  {
+    name: 'graph_query',
+    description: '在一个已知仓库内用自然语言统一查询 Symbol、Community、Process 与可选 bounded impact；响应携带同 commit 水位、排序账本和能力降级状态。',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        repository_id: uuid('单仓 repository UUID（必填）'),
+        query: { type: 'string', minLength: 1, maxLength: 2000, description: '中文或英文自然语言问题（必填，非空白）' },
+        branch: { type: 'string', maxLength: 255, default: '', description: '索引分支；空串使用仓库默认索引坐标' },
+        max_symbols: int('最多返回的 Symbol 数', { min: 0, max: 50, default: 10 }),
+        max_processes: int('最多返回的 Process 数', { min: 0, max: 20, default: 5 }),
+        budget_chars: int('响应字符预算', { min: 0, max: 200000, default: 50000 }),
+        include_impact: bool('是否执行 bounded impact', false),
+        anchor_symbol_id: { type: ['string', 'null'], default: null, description: '消歧后的稳定 Symbol UID；缺省时仅单候选可自动锚定' },
+        impact_max_depth: int('影响分析最大深度', { min: 1, max: 3, default: 3 }),
+        impact_limit: int('影响分析结果上限', { min: 0, max: 200, default: 200 }),
+      },
+      required: ['repository_id', 'query'],
+    },
+  },
   {
     name: 'route_repositories',
     description: '根据需求描述路由到最相关的已索引仓库，返回排序后的候选仓库与索引健康度。仓库发现的第一步。',
@@ -189,6 +217,112 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
     },
   },
   {
+    name: 'impact_analysis',
+    description: '从稳定符号 ID 或符号名出发，沿代码图谱计算受影响符号与跨仓边界；两种锚点必须且只能提供一种。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repository_id: uuid('仓库 UUID'),
+        branch: str('分支名，省略用默认索引分支'),
+        symbol_id: uuid('稳定 Symbol UUID（与 symbol 二选一）'),
+        symbol: str('符号名（与 symbol_id 二选一）'),
+        file_path: str('符号所在文件路径，用于同名消歧'),
+        symbol_type: str('符号类型，用于同名消歧'),
+        max_depth: int('图遍历最大深度', { min: 1, max: 3, default: 3 }),
+        min_confidence: number('最小边置信度', { min: 0, max: 1, default: 1 }),
+        include_low_confidence: bool('是否包含低置信度边', false),
+        limit: int('结果条数上限', { min: 1, max: 200, default: 200 }),
+        max_cross_repo_hops: int('跨仓遍历跳数上限', { min: 0, max: 1, default: 1 }),
+        exclude_test_files: bool('是否排除测试文件', false),
+      },
+      required: ['repository_id'],
+    },
+  },
+  {
+    name: 'detect_changes',
+    description: '比较指定 Git ref 与索引水位，识别变更符号并计算受影响范围；compare 为必填 head 坐标。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repository_id: uuid('仓库 UUID'),
+        compare: { type: 'string', minLength: 1, maxLength: 255, description: '待比较的 head ref 或完整 commit SHA' },
+        base_ref: str('可选 base ref；省略时使用索引水位'),
+        max_depth: int('影响分析最大深度', { min: 1, max: 3, default: 3 }),
+        min_confidence: number('最小边置信度', { min: 0, max: 1, default: 1 }),
+        include_low_confidence: bool('是否包含低置信度边', false),
+        limit: int('结果条数上限', { min: 1, max: 200, default: 200 }),
+      },
+      required: ['repository_id', 'compare'],
+    },
+  },
+  {
+    name: 'list_processes',
+    description: '列出仓库代码图谱中已识别的执行流程，可按社区类型或包含的 Symbol 收窄结果。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repository_id: uuid('仓库 UUID'),
+        branch: str('分支名，省略用默认索引分支'),
+        community_class: { type: 'string', enum: ['intra_community', 'cross_community'], description: '流程社区类型过滤' },
+        symbol_id: uuid('仅返回包含该 Symbol 的流程'),
+        limit: int('结果条数上限', { min: 1, max: 200, default: 50 }),
+      },
+      required: ['repository_id'],
+    },
+  },
+  {
+    name: 'get_process',
+    description: '按稳定 process_key 读取单个执行流程的步骤、参与符号和同一索引水位信息。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repository_id: uuid('仓库 UUID'),
+        branch: str('分支名，省略用默认索引分支'),
+        process_key: { type: 'string', minLength: 1, maxLength: 640, description: 'list_processes 返回的稳定 process_key' },
+      },
+      required: ['repository_id', 'process_key'],
+    },
+  },
+  {
+    name: 'rename_preview',
+    description: '预览符号重命名的候选修改位置与置信度，不写代码；symbol_id 与 symbol 必须且只能提供一种。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repository_id: uuid('仓库 UUID'),
+        branch: str('分支名，省略用默认索引分支'),
+        symbol_id: uuid('稳定 Symbol UUID（与 symbol 二选一）'),
+        symbol: str('符号名（与 symbol_id 二选一）'),
+        file_path: str('符号所在文件路径，用于同名消歧'),
+        symbol_type: str('符号类型，用于同名消歧'),
+        new_name: { type: 'string', minLength: 1, maxLength: 512, description: '目标符号名' },
+        context_lines: int('每个修改点返回的上下文行数', { min: 0, max: 5, default: 2 }),
+      },
+      required: ['repository_id', 'new_name'],
+    },
+  },
+  {
+    name: 'trace_call_path',
+    description: '在同一仓库代码图谱内查询源符号到目标符号的最短调用路径及等长备选路径。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repository_id: uuid('仓库 UUID'),
+        branch: str('分支名，省略用默认索引分支'),
+        source_symbol_id: uuid('源 Symbol UUID（与 source 二选一）'),
+        source: str('源符号名（与 source_symbol_id 二选一）'),
+        source_file_path: str('源符号文件路径，用于同名消歧'),
+        target_symbol_id: uuid('目标 Symbol UUID（与 target 二选一）'),
+        target: str('目标符号名（与 target_symbol_id 二选一）'),
+        target_file_path: str('目标符号文件路径，用于同名消歧'),
+        min_confidence: number('最小边置信度', { min: 0, max: 1, default: 1 }),
+        include_low_confidence: bool('是否包含低置信度边', false),
+        alt_path_cap: int('等长备选路径数量上限', { min: 1, max: 50, default: 10 }),
+      },
+      required: ['repository_id'],
+    },
+  },
+  {
     name: 'analyze_repository',
     description: '对仓库做结构化分析（架构、风险、测试建议），可带 focus 聚焦特定主题，返回 analysis_id 供 create_coding_plan 复用证据。',
     inputSchema: {
@@ -312,6 +446,8 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       type: 'object',
       properties: {
         context_id: uuid('get_feishu_work_item_context 返回的 context UUID'),
+        idempotency_key: str('稳定事件 ID（<=128 字符）；超时重试必须复用同一 key，避免重复创建蓝图'),
+        blueprint_project_id: uuid('工作项对应的 Friday Project UUID；项目跟踪入口应显式传入以避免 Space 内多项目串线'),
         repository_ids: { type: 'array', items: { type: 'string', format: 'uuid' }, description: '限定仓库 UUID 列表（<=10 个，可选）' },
         repo_hints: strList('仓库提示词（<=20 个，可选，辅助路由）'),
         context_chunks: dictList('补充代码证据 chunk（<=30 条）'),
@@ -427,6 +563,80 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         as_of: str('历史时点查询（ISO8601，可选）'),
       },
       required: ['entity_id'],
+    },
+  },
+  // ── 蓝图环节单跑（stage sandbox）：前四项只读/零落库，apply 显式写回 ────────
+  {
+    name: 'route_blueprint_repos',
+    description: '单跑蓝图三分量仓库路由，融合章程、历史交付与项目 pin；只返回候选提案，不写回项目绑定。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requirement_text: { type: 'string', maxLength: 8000, default: '', description: '需求原文；与 requirement_spec 至少提供一个' },
+        requirement_spec: { type: 'object', description: '结构化需求规格；与 requirement_text 至少提供一个' },
+        project_id: uuid('Friday 项目 UUID（可选）'),
+        space_id: uuid('项目空间 UUID（可选）'),
+        team_id: str('团队标识（可选）'),
+        primary_team: str('主责团队标识（可选）'),
+        include_repository_ids: { type: 'array', items: { type: 'string', format: 'uuid' }, maxItems: 50, default: [], description: '强制纳入候选的仓库 UUID' },
+        exclude_repository_ids: { type: 'array', items: { type: 'string', format: 'uuid' }, maxItems: 50, default: [], description: '排除的仓库 UUID' },
+        ignore_pin: bool('是否忽略项目人工固定路由', false),
+        top_k: int('返回候选仓库数', { min: 1, max: 10, default: 5 }),
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'generate_requirement_spec',
+    description: '单跑需求规格生成：拆分功能点、补齐 intent，并计算四维歧义分数；整个过程零落库。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requirement_text: { type: 'string', minLength: 1, maxLength: 20000, description: '需求原文' },
+        feature_points: { type: 'array', items: { type: 'object' }, maxItems: 200, default: [], description: '直采功能点 [{title, intent?, module?, layer?}]；非空时跳过 LLM 拆分' },
+        prior_context: { type: 'string', maxLength: 8000, default: '', description: '已有业务或交付上下文' },
+        assumptions_tier: { type: 'string', enum: ['strict', 'balanced', 'assume_more', ''], default: '', description: '假设强度；空值使用系统默认' },
+        classify_intents: bool('是否分类功能点 intent', true),
+      },
+      required: ['requirement_text'],
+    },
+  },
+  {
+    name: 'start_repo_research',
+    description: '对显式仓库集合发起蓝图沙箱调研，direct 仓进入容器深调研，indirect 仓走轻量合成。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requirement_text: { type: 'string', minLength: 1, maxLength: 20000, description: '需求原文' },
+        requirement_spec: { type: 'object', description: '结构化需求规格（可选）' },
+        project_id: uuid('Friday 项目 UUID（可选）'),
+        repositories: { type: 'array', items: { type: 'object' }, minItems: 1, maxItems: 10, description: '仓库集合 [{repository_id, role?: direct|indirect, confidence?: high|medium|low}]' },
+      },
+      required: ['requirement_text', 'repositories'],
+    },
+  },
+  {
+    name: 'get_repo_research',
+    description: '轮询蓝图沙箱调研会话并获取各仓研究状态与结果；仅会话创建者可读取。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session_id: uuid('start_repo_research 返回的会话 UUID'),
+      },
+      required: ['session_id'],
+    },
+  },
+  {
+    name: 'apply_repo_association',
+    description: '显式采纳蓝图路由结果，把选定仓库 bind 或 unbind 到项目；这是 stage 单跑家族唯一写回路径。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: uuid('Friday 项目 UUID'),
+        action: { type: 'string', enum: ['bind', 'unbind'], default: 'bind', description: '绑定动作' },
+        bindings: { type: 'array', items: { type: 'object' }, minItems: 1, maxItems: 20, description: '绑定列表 [{repository_id, branch_name?}]' },
+      },
+      required: ['project_id', 'bindings'],
     },
   },
   // ── 项目上下文环路（按当前分支召回 → 编码 → 上报，跨分支跨项目通用）──────────
@@ -553,7 +763,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   },
   {
     name: 'get_technical_blueprint',
-    description: '【蓝图取件】按 artifact_id 续取技术蓝图：返回当前状态 current_status、六段摘要 sections（repo_associations / current_state_analysis / implementation_overview / api_contracts / impact_analysis / interaction_flows，每段 {count, titles}）、完整 markdown（未确认的蓝图首行带「未经确认」标注）与待澄清清单 pending_clarifications。蓝图开关打开时 create_feishu_technical_plan 立即回 status=partial + blueprint_artifact_id，之后轮询本工具取件；pending_clarifications 非空时先逐条调 answer_blueprint_clarification 作答，再回来续取终稿。⛔ 没有单独的待澄清列表工具——清单内联在本工具响应里。',
+    description: '【蓝图取件】按 artifact_id 续取技术蓝图：返回 Friday project_id、当前状态、不可变 artifact_version_id/content_hash、六段摘要、完整 Friday markdown（未确认的蓝图首行带「未经确认」标注）与待澄清清单。必须核对 project_id，并原样展示 question/options；pending_clarifications 非空时逐条调用 answer_blueprint_clarification 后再续取。⛔ 没有单独的待澄清列表工具——清单内联在本工具响应里。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -573,6 +783,35 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         artifact_id: str('蓝图 artifact ID（可选，仅作二次校验：传了就必须与线程实际归属一致）'),
       },
       required: ['thread_id', 'body'],
+    },
+  },
+  {
+    name: 'approve_technical_blueprint',
+    description: '【蓝图最终确认】仅在人类明确批准后调用。提交 get_technical_blueprint 刚读取的 artifact_version_id 与 content_hash，Friday 在同一事务中确认它们仍是当前版本、无未决阻塞线程后才转 confirmed，并返回 Friday 原始 markdown 与编码交接。版本已变化时返回 stale，必须重新展示后再审批。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifact_id: str('技术蓝图 artifact ID'),
+        artifact_version_id: uuid('get_technical_blueprint 返回的当前版本 ID'),
+        content_hash: str('get_technical_blueprint 返回的 64 位 SHA-256 内容 hash'),
+        technical_plan_id: uuid('create_feishu_technical_plan 返回的技术方案 ID'),
+      },
+      required: ['artifact_id', 'artifact_version_id', 'content_hash', 'technical_plan_id'],
+    },
+  },
+  {
+    name: 'request_technical_blueprint_changes',
+    description: '【蓝图退回】将人类的修改意见交给 Friday canonical rework 流程；它创建新版本、重开相应阶段并阻断编码。不要由 Agent 直接改写方案正文。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifact_id: str('技术蓝图 artifact ID'),
+        comment: str('人类的退回意见（<=8000 字符，可选）'),
+        anchor: { type: 'object', description: '可选：意见锚点（block_id / section_path 等）' },
+        rework_scope: { type: 'string', enum: ['review', 'merge', 'repos', 'full'], default: 'merge', description: '返工范围' },
+        rework_repository_ids: { type: 'array', items: { type: 'string', format: 'uuid' }, description: 'rework_scope=repos 时要重跑的仓库 UUID 列表' },
+      },
+      required: ['artifact_id'],
     },
   },
   {
@@ -645,10 +884,17 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   list_repository_files: query('仓库 · 目录浏览'),
   get_repository_file: query('仓库 · 读取文件'),
   // 分析
+  graph_query: query('代码图谱 · 单仓统一查询'),
   search_rag_chunks: query('分析 · GraphRAG 混合检索'),
   grep_repository: query('分析 · 精确文本检索（grep）'),
   find_related_chunks: query('分析 · 图谱关系扩散'),
   reverse_lookup_requirements: query('分析 · 代码反查需求'),
+  impact_analysis: query('分析 · 符号影响面'),
+  detect_changes: query('分析 · 变更影响检测'),
+  list_processes: query('分析 · 执行流程列表'),
+  get_process: query('分析 · 执行流程详情'),
+  rename_preview: query('分析 · 重命名预览'),
+  trace_call_path: query('分析 · 调用路径追踪'),
   analyze_repository: generator('分析 · 结构化仓库分析'),
   // 计划
   create_coding_plan: generator('计划 · 生成编码计划'),
@@ -675,6 +921,12 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   search_delivery_knowledge: query('知识 · 交付知识检索'),
   get_entity_timeline: query('知识 · 实体版本时间线'),
   get_related_entities: query('知识 · 关联实体遍历'),
+  // 蓝图环节单跑（仅 apply_repo_association 写回 Friday）
+  route_blueprint_repos: query('蓝图 · 单跑仓库路由'),
+  generate_requirement_spec: query('蓝图 · 单跑需求规格'),
+  start_repo_research: query('蓝图 · 发起沙箱仓库调研'),
+  get_repo_research: query('蓝图 · 查询沙箱调研'),
+  apply_repo_association: generator('蓝图 · 采纳仓库关联'),
   // 项目上下文环路
   lookup_project_by_branch: query('项目 · 按分支召回上下文（开工第一步）'),
   search_project_context: query('项目 · 上下文语义检索'),
@@ -689,6 +941,8 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   // 蓝图异步澄清协议（立即回 pending → 逐条作答 → 续取终稿；⛔ 无第三个 list 工具）
   get_technical_blueprint: query('蓝图 · 续取终稿与待澄清清单'),
   answer_blueprint_clarification: generator('蓝图 · 逐条作答澄清'),
+  approve_technical_blueprint: executor('蓝图 · 最终确认并生成编码交接'),
+  request_technical_blueprint_changes: generator('蓝图 · 退回并重开返工'),
   // 蓝图共享上下文总线（容器内：会话由任务 token 解析，无会话入参）
   read_blueprint_context: query('蓝图 · 读共享上下文总线'),
   report_blueprint_context: generator('蓝图 · 写共享上下文总线'),

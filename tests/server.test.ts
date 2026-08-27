@@ -17,10 +17,27 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('fRIDAY_TOOLS', () => {
-  it('定义了与服务端一致的 37 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(37)
+  it('定义了与服务端一致的 51 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(51)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(37)
+    expect(new Set(names).size).toBe(51)
+    // v0.6.0：代码图谱、影响分析、Process 与蓝图 stage 单跑工具
+    for (const name of [
+      'graph_query',
+      'impact_analysis',
+      'detect_changes',
+      'list_processes',
+      'get_process',
+      'rename_preview',
+      'trace_call_path',
+      'route_blueprint_repos',
+      'generate_requirement_spec',
+      'start_repo_research',
+      'get_repo_research',
+      'apply_repo_association',
+    ]) {
+      expect(names).toContain(name)
+    }
     expect(names).toContain('route_repositories')
     expect(names).toContain('grep_repository')
     expect(names).toContain('execute_coding_plan')
@@ -44,6 +61,8 @@ describe('fRIDAY_TOOLS', () => {
     // 蓝图异步澄清协议（取件 + 逐条作答）与共享上下文总线（容器内读写）
     expect(names).toContain('get_technical_blueprint')
     expect(names).toContain('answer_blueprint_clarification')
+    expect(names).toContain('approve_technical_blueprint')
+    expect(names).toContain('request_technical_blueprint_changes')
     expect(names).toContain('read_blueprint_context')
     expect(names).toContain('report_blueprint_context')
   })

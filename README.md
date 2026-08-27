@@ -46,11 +46,18 @@ npx -y @friday-ai-codes/mcp register
 
 ## 工具集
 
-23 个工具，对应 Friday `/api/mcp/tools/*` 端点：仓库发现（`route_repositories`）、Graph RAG 检索（`search_rag_chunks`、`find_related_chunks`）、精确文本检索（`grep_repository`）、仓库浏览（`get_repository` / `list_repository_files` / `get_repository_file`）、分析与计划（`analyze_repository` / `create_coding_plan` / `improve_coding_plan`）、执行与 MR（`execute_coding_plan` / `get_coding_execution` / `summarize_branch` / `create_merge_request`）、飞书工作项（`get_feishu_work_item_context` / `create_feishu_technical_plan` / `create_work_item_repo_tasks` / `execute_work_item_repo_tasks`）、学习案例（`create_learning_case` / `search_learning_cases`）、交付知识图谱（`search_delivery_knowledge` / `get_entity_timeline` / `get_related_entities`）。
+51 个工具，与 Friday `/api/mcp/tools/*` 公开端点保持同步。能力包括：
+
+- 仓库发现、浏览与精确检索：`route_repositories`、`grep_repository`、`get_repository_file` 等。
+- Graph RAG 与代码图谱：`search_rag_chunks`、`graph_query`、`impact_analysis`、`detect_changes`、`list_processes`、`get_process`、`trace_call_path`、`rename_preview`。
+- 分析、编码计划、隔离执行与 PR / MR 交付。
+- 飞书工作项、学习案例、交付知识图谱与项目上下文召回/沉淀。
+- feature list 技术方案、蓝图异步澄清与共享上下文总线。
+- 蓝图 stage 单跑：`route_blueprint_repos`、`generate_requirement_spec`、`start_repo_research`、`get_repo_research`、`apply_repo_association`。
 
 每个工具都带 MCP 标准 `annotations`（中文 `title` 按「阶段 · 动作」分组 + `readOnlyHint` / `idempotentHint` / `openWorldHint` 行为提示）。
 
-配合 [Friday AI skills](https://github.com/friday-ai-codes/skills)（4 个技能：`friday` / `friday-code` / `friday-feishu` / `friday-memory`）使用效果最佳，一键全装：
+配合 [Friday AI skills](https://github.com/friday-ai-codes/skills) 使用效果最佳，一键全装：
 
 ```bash
 npx @friday-ai-codes/skills
