@@ -548,6 +548,17 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
     },
   },
   {
+    name: 'get_session_capture',
+    description: '按 Capture UUID 回放创建者有权读取的脱敏原始结构化问答；挂钩 scope 不可见、非创建者或记录不存在时统一返回中性 404。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        capture_id: uuid('必填 Capture UUID'),
+      },
+      required: ['capture_id'],
+    },
+  },
+  {
     name: 'get_entity_timeline',
     description: '查询知识实体的完整迭代轨迹：方案 v1→vN 与各次编码按时间排序的时间线（纯版本链，不依赖向量库）。',
     inputSchema: {
@@ -957,6 +968,7 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   search_learning_cases: query('记忆 · 检索学习案例'),
   search_delivery_knowledge: query('知识 · 交付知识检索'),
   search_session_knowledge: query('知识 · 会话精华检索'),
+  get_session_capture: query('知识 · Capture 问答回放'),
   get_entity_timeline: query('知识 · 实体版本时间线'),
   get_related_entities: query('知识 · 关联实体遍历'),
   // 蓝图环节单跑（仅 apply_repo_association 写回 Friday）
