@@ -1,5 +1,5 @@
 /**
- * Friday MCP 工具定义（51 个），与服务端 server/mcp_tools/serializers.py 对齐。
+ * Friday MCP 工具定义（52 个），与服务端 server/mcp_tools/serializers.py 对齐。
  *
  * 每个工具对应一个 HTTP 端点 POST {baseUrl}/api/mcp/tools/{name}/。
  * inputSchema 为 JSON Schema（MCP 标准），字段约束镜像 DRF serializer。
@@ -748,6 +748,29 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
     },
   },
   {
+    name: 'report_session_knowledge',
+    description: '提交本轮问题与客户端可见答案精华到 Friday Capture 账本；不要上传全文 transcript、隐藏思维链、凭证或密钥。accepted=true 仅表示 Capture 已持久化，不代表已挂钩仓库、已通过价值评估或已进入知识库/RAG。',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        question: str('本轮用户问题（必填，非空白）'),
+        answer: str('客户端可见答案精华（必填；不是全文 transcript 或隐藏思维链）'),
+        repository_id: uuid('仓库 UUID（可选）'),
+        git_url: str('Git remote URL（可选；与 repository_id 一起交给服务端挂钩）'),
+        branch_name: str('分支名（可选元数据，不用于拒绝 Capture 持久化）'),
+        project_id: uuid('项目 UUID（可选）'),
+        session_id: str('宿主会话 ID（可选，不要求 UUID）'),
+        response_model: str('响应模型名（可选，缺省由服务端归一）'),
+        provider: str('模型供应商（可选）'),
+        input_tokens: str('输入 token 计数原文（可选，字符串）'),
+        output_tokens: str('输出 token 计数原文（可选，字符串）'),
+        client: str('宿主客户端标识（可选，开放字符串）'),
+      },
+      required: ['question', 'answer'],
+    },
+  },
+  {
     name: 'report_project_state',
     description: '【收工后】把本次新增/改动的 API 结构化清单回写 Friday 项目 STATE。不写死项目：传 branch_name 即可按当前分支自动定位唯一项目（也可显式传 project_id）。',
     inputSchema: {
@@ -933,6 +956,13 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   grep_project: query('项目 · 上下文关键词检索'),
   read_project_doc: query('项目 · 读取工作区文档'),
   report_project_knowledge: generator('项目 · 上报沉淀记忆（收工）'),
+  report_session_knowledge: {
+    title: '会话 · 上报 Capture 账本',
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   report_project_state: generator('项目 · 回写 API 状态清单（收工）'),
   // feature list 技术方案（两段式：create 必须配 confirm，单次调用拿不到方案）
   create_feature_tech_plan: generator('方案 · 发起 feature list 技术方案（出待确认项）'),
