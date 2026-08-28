@@ -17,10 +17,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('fRIDAY_TOOLS', () => {
-  it('定义了与服务端一致的 51 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(51)
+  it('定义了与服务端一致的 52 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(52)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(51)
+    expect(new Set(names).size).toBe(52)
     // v0.6.0：代码图谱、影响分析、Process 与蓝图 stage 单跑工具
     for (const name of [
       'graph_query',
@@ -53,6 +53,7 @@ describe('fRIDAY_TOOLS', () => {
     expect(names).toContain('grep_project')
     expect(names).toContain('read_project_doc')
     expect(names).toContain('report_project_knowledge')
+    expect(names).toContain('report_session_knowledge')
     expect(names).toContain('report_project_state')
     // feature list 技术方案两段式（create 必须配 confirm，get 轮询取方案）
     expect(names).toContain('create_feature_tech_plan')
@@ -83,6 +84,22 @@ describe('fRIDAY_TOOLS', () => {
       expect(annotations!.destructiveHint).toBe(false)
     }
     expect(Object.keys(TOOL_ANNOTATIONS).sort()).toEqual(FRIDAY_TOOLS.map(t => t.name).sort())
+  })
+
+  it('会话知识回写是非破坏且可幂等的内部写操作', () => {
+    expect(TOOL_ANNOTATIONS.report_session_knowledge).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    })
+  })
+
+  it('会话知识回写描述区分已收 Capture 与知识库入库', () => {
+    const tool = FRIDAY_TOOLS.find(item => item.name === 'report_session_knowledge')
+    expect(tool).toBeDefined()
+    expect(tool!.description).toContain('Capture')
+    expect(tool!.description).toMatch(/不(?:代表|等于).*知识库|未.*知识库/)
   })
 })
 
