@@ -17,10 +17,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('fRIDAY_TOOLS', () => {
-  it('定义了与服务端一致的 53 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(53)
+  it('定义了与服务端一致的 54 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(54)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(53)
+    expect(new Set(names).size).toBe(54)
     // v0.6.0：代码图谱、影响分析、Process 与蓝图 stage 单跑工具
     for (const name of [
       'graph_query',
@@ -45,6 +45,7 @@ describe('fRIDAY_TOOLS', () => {
     expect(names).toContain('search_learning_cases')
     expect(names).toContain('search_delivery_knowledge')
     expect(names).toContain('search_session_knowledge')
+    expect(names).toContain('get_session_capture')
     expect(names).toContain('get_entity_timeline')
     expect(names).toContain('get_related_entities')
     // 项目上下文环路 + 反查（v0.3.0 与服务端 30 工具全量对齐）
@@ -105,6 +106,15 @@ describe('fRIDAY_TOOLS', () => {
 
   it('会话知识检索是只读且闭世界的查询工具', () => {
     expect(TOOL_ANNOTATIONS.search_session_knowledge).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    })
+  })
+
+  it('Capture 回放是只读且闭世界的查询工具', () => {
+    expect(TOOL_ANNOTATIONS.get_session_capture).toMatchObject({
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
