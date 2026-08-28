@@ -534,6 +534,20 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
     },
   },
   {
+    name: 'search_session_knowledge',
+    description: '按必填 repository_id 检索已入图的中高价值 session_capture 会话精华；可选 project_id 仅作为 AND 条件进一步收窄结果。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: str('会话知识检索语句（<=4000 字符）'),
+        repository_id: uuid('必填仓库 UUID，作为主检索范围'),
+        project_id: uuid('可选项目 UUID，仅与仓库范围做 AND 收窄'),
+        top_k: int('返回结果数', { min: 1, max: 20, default: 5 }),
+      },
+      required: ['repository_id', 'query'],
+    },
+  },
+  {
     name: 'get_entity_timeline',
     description: '查询知识实体的完整迭代轨迹：方案 v1→vN 与各次编码按时间排序的时间线（纯版本链，不依赖向量库）。',
     inputSchema: {
@@ -942,6 +956,7 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   create_learning_case: generator('记忆 · 沉淀学习案例'),
   search_learning_cases: query('记忆 · 检索学习案例'),
   search_delivery_knowledge: query('知识 · 交付知识检索'),
+  search_session_knowledge: query('知识 · 会话精华检索'),
   get_entity_timeline: query('知识 · 实体版本时间线'),
   get_related_entities: query('知识 · 关联实体遍历'),
   // 蓝图环节单跑（仅 apply_repo_association 写回 Friday）
