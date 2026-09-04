@@ -10,7 +10,7 @@
 npx -y @friday-ai-codes/mcp setup
 ```
 
-交互式中文向导一条龙：凭证问答 → 自动注册进本机 agent → 连通性测速（延迟 ms 高亮）→ 能力演示（随机介绍一个已索引仓库）。
+交互式中文向导一条龙：凭证问答 → 自动注册进当前项目的 agent 配置 → 连通性测速（延迟 ms 高亮）→ 能力演示（随机介绍一个已索引仓库）。
 
 脚本 / CI 场景用命令式 `init`：
 
@@ -28,21 +28,21 @@ npx -y @friday-ai-codes/mcp init --base-url https://friday.example.com --token <
 npx -y @friday-ai-codes/mcp register
 ```
 
-- Cursor：写入 `~/.cursor/mcp.json`（`--project` 时写 `./.cursor/mcp.json`）
-- Claude Code：执行 `claude mcp add friday -- npx -y @friday-ai-codes/mcp`
-- Codex：追加 `[mcp_servers.friday]` 到 `~/.codex/config.toml`
+- Cursor：默认写入 `./.cursor/mcp.json`
+- Claude Code：默认执行 `claude mcp add --scope project friday -- npx -y @friday-ai-codes/mcp`
+- Codex：默认追加 `[mcp_servers.friday]` 到 `./.codex/config.toml`
 
-只新增 `friday` 条目，不覆盖既有配置；已注册则跳过。用 `--agent cursor|claude-code|codex`（可重复）指定目标，`--all` 注册全部。
+只新增 `friday` 条目，不覆盖既有配置；已注册则跳过。用 `--agent cursor|claude-code|codex`（可重复）指定目标，`--all` 注册全部。只有明确传入 `--global`（或 `-g`）时才写用户全局配置。
 
 ## 命令
 
 | 命令 | 作用 |
 | --- | --- |
 | `friday-mcp`（无参数） | 启动 stdio MCP server |
-| `friday-mcp setup` | 交互式中文向导：凭证 → 注册 → 测速 → 能力演示 |
+| `friday-mcp setup [--global]` | 交互式中文向导：凭证 → 注册 → 测速 → 能力演示；默认当前项目 |
 | `friday-mcp init` | 写入配置（带 `--base-url` / `--token` 为命令式，否则交互式问答） |
-| `friday-mcp register [--agent <name>] [--all] [--project]` | 把 friday MCP server 注册进 agent 配置（幂等） |
-| `friday-mcp doctor` | 检查配置、注册状态与连通性测速（不回显令牌） |
+| `friday-mcp register [--agent <name>] [--all] [--project\|--global]` | 把 friday MCP server 注册进 agent 配置（幂等）；默认当前项目 |
+| `friday-mcp doctor [--project\|--global]` | 检查对应范围的注册状态与连通性测速（不回显令牌）；默认当前项目 |
 
 ## 工具集
 

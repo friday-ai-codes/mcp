@@ -157,7 +157,8 @@ export async function interactiveInit(): Promise<FridayConfig> {
 // setup 一条龙
 // ---------------------------------------------------------------------------
 
-export async function runSetup(): Promise<number> {
+export async function runSetup(options: { project?: boolean } = {}): Promise<number> {
+  const project = options.project ?? true
   p.intro(pc.bgMagenta(pc.black(' Friday MCP 配置向导 ')))
 
   // 1) 凭证：已有配置则询问是否复用
@@ -181,9 +182,9 @@ export async function runSetup(): Promise<number> {
     p.log.warn('未嗅探到 Cursor / Claude Code / Codex，跳过注册。可稍后手动运行 register。')
   }
   else {
-    p.log.step(`把 friday MCP server 注册进：${agents.map(agent => pc.green(agent)).join('、')}`)
+    p.log.step(`把 friday MCP server 注册进${project ? '当前项目' : '用户全局'}：${agents.map(agent => pc.green(agent)).join('、')}`)
     for (const agent of agents) {
-      const result = registerAgent(agent)
+      const result = registerAgent(agent, { project })
       const mark = result.status === 'registered'
         ? pc.green('✓')
         : result.status === 'already' ? pc.blue('=') : pc.yellow('!')
