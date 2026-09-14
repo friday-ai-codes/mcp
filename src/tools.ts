@@ -1,5 +1,5 @@
 /**
- * Friday MCP 工具定义（42 个），与服务端 server/mcp_tools/serializers.py 对齐。
+ * Friday MCP 工具定义（43 个），与服务端 server/mcp_tools/serializers.py 对齐。
  *
  * 每个工具对应一个 HTTP 端点 POST {baseUrl}/api/mcp/tools/{name}/。
  * inputSchema 为 JSON Schema（MCP 标准），字段约束镜像 DRF serializer。
@@ -566,6 +566,20 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
     },
   },
   {
+    name: 'get_confirmed_blueprint_handoff',
+    description: '【蓝图交接取件】按 technical_plan_id、artifact_id、artifact_version_id 与 content_hash 四个确认坐标，只读取得 Friday 已确认蓝图的 canonical_content、完整 Markdown 和结构化 repository_tasks。服务端逐项核对当前 confirmed 版本，任一坐标漂移立即拒绝；不创建版本、不改状态、不触发编码。完整响应由 MCP 原样落本机文件，只向模型返回文件路径与摘要。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        technical_plan_id: uuid('技术方案 UUID（确认蓝图时返回）'),
+        artifact_id: str('蓝图 artifact ID（确认蓝图时返回）'),
+        artifact_version_id: str('已确认的蓝图版本 ID'),
+        content_hash: str('已确认版本的 64 位小写 SHA-256 内容哈希'),
+      },
+      required: ['technical_plan_id', 'artifact_id', 'artifact_version_id', 'content_hash'],
+    },
+  },
+  {
     name: 'answer_blueprint_clarification',
     description: '【蓝图作答】对 get_technical_blueprint 返回的单条待澄清线程作答，服务端同请求回灌蓝图并返回 reflow（新版本号与冲突块）。逐条调用：一次只答一个 thread_id，答完再调 get_technical_blueprint 续取终稿。必须先把澄清题原样呈现给用户、拿到真实答复再调。⛔ 不能对 AI 评审 finding 线程作答（一律 400 not_answerable，线程状态一字不变）；蓝图已确认（不可编辑）时一律 400 not_editable。',
     inputSchema: {
@@ -762,6 +776,7 @@ export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
   get_feature_tech_plan: query('方案 · 查询状态 / 取回完整方案'),
   // 蓝图异步澄清协议（立即回 pending → 逐条作答 → 续取终稿；⛔ 无第三个 list 工具）
   get_technical_blueprint: query('蓝图 · 续取终稿与待澄清清单'),
+  get_confirmed_blueprint_handoff: query('蓝图 · 读取已确认交接包'),
   answer_blueprint_clarification: generator('蓝图 · 逐条作答澄清'),
   // 蓝图共享上下文总线（容器内：会话由任务 token 解析，无会话入参）
   read_blueprint_context: query('蓝图 · 读共享上下文总线'),

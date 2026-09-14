@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { readFile, unlink } from 'node:fs/promises'
 import { MISSING_CONFIG_MESSAGE } from '../src/config.js'
 import { callFridayTool, RunContext } from '../src/server.js'
 import { FRIDAY_TOOLS, TOOL_ANNOTATIONS } from '../src/tools.js'
@@ -17,10 +18,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('fRIDAY_TOOLS', () => {
-  it('定义了与服务端一致的 42 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(42)
+  it('定义了与服务端一致的 43 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(43)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(42)
+    expect(new Set(names).size).toBe(43)
     expect(names).toContain('route_repositories')
     expect(names).toContain('grep_repository')
     expect(names).toContain('execute_coding_plan')
@@ -43,6 +44,7 @@ describe('fRIDAY_TOOLS', () => {
     expect(names).toContain('get_feature_tech_plan')
     // 蓝图异步澄清协议（取件 + 逐条作答）与共享上下文总线（容器内读写）
     expect(names).toContain('get_technical_blueprint')
+    expect(names).toContain('get_confirmed_blueprint_handoff')
     expect(names).toContain('answer_blueprint_clarification')
     expect(names).toContain('read_blueprint_context')
     expect(names).toContain('report_blueprint_context')
@@ -111,6 +113,38 @@ describe('callFridayTool', () => {
 
     await callFridayTool('search_rag_chunks', { query: 'b' }, runContext, fetchMock, () => CONFIG)
     expect(fetchMock.mock.calls[1]![1].headers['X-Friday-Run-ID']).toBe('run-abc')
+  })
+
+  it('已确认蓝图交接包原样落文件，只向模型返回小摘要', async () => {
+    const marker = '完整蓝图正文-不应出现在模型摘要里'
+    const body = {
+      technical_plan_id: '11111111-1111-1111-1111-111111111111',
+      artifact_id: '22222222-2222-2222-2222-222222222222',
+      artifact_version_id: '33333333-3333-3333-3333-333333333333',
+      version_no: 20,
+      content_hash: 'a'.repeat(64),
+      current_status: 'confirmed',
+      markdown: marker.repeat(1000),
+      repository_tasks: [{ repository_name: 'frontend/app' }],
+      run_id: 'run-handoff',
+    }
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(body))
+
+    const result = await callFridayTool(
+      'get_confirmed_blueprint_handoff',
+      {},
+      new RunContext(),
+      fetchMock,
+      () => CONFIG,
+    )
+
+    expect(result.isError).toBeUndefined()
+    expect(result.content[0]!.text).not.toContain(marker)
+    const summary = JSON.parse(result.content[0]!.text)
+    expect(summary.repository_task_count).toBe(1)
+    expect(summary.markdown_chars).toBe(body.markdown.length)
+    expect(await readFile(summary.handoff_file, 'utf8')).toBe(JSON.stringify(body))
+    await unlink(summary.handoff_file)
   })
 
   it('401 返回换令牌引导（isError，不抛异常，不泄漏 PAT）', async () => {

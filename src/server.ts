@@ -17,6 +17,10 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
+import { createHash } from 'node:crypto'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { FridayConfig } from './config.js'
 import { MISSING_CONFIG_MESSAGE, resolveConfig } from './config.js'
 import { FRIDAY_TOOLS, TOOL_ANNOTATIONS } from './tools.js'
@@ -37,6 +41,41 @@ function textResult(text: string, isError = false): ToolCallResult {
   return isError
     ? { content: [{ type: 'text', text }], isError: true }
     : { content: [{ type: 'text', text }] }
+}
+
+function safeFilePart(value: unknown): string {
+  return String(value ?? '').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 64) || 'unknown'
+}
+
+async function persistConfirmedHandoff(
+  bodyText: string,
+  body: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  const directory = join(tmpdir(), 'friday-mcp-handoffs')
+  await mkdir(directory, { recursive: true, mode: 0o700 })
+
+  const artifactId = safeFilePart(body.artifact_id)
+  const versionId = safeFilePart(body.artifact_version_id)
+  const finalPath = join(directory, `blueprint-handoff-${artifactId}-${versionId}.json`)
+  const temporaryPath = `${finalPath}.${process.pid}.tmp`
+  await writeFile(temporaryPath, bodyText, { encoding: 'utf8', mode: 0o600 })
+  await rename(temporaryPath, finalPath)
+
+  const repositoryTasks = Array.isArray(body.repository_tasks) ? body.repository_tasks : []
+  const markdown = typeof body.markdown === 'string' ? body.markdown : ''
+  return textResult(JSON.stringify({
+    technical_plan_id: body.technical_plan_id,
+    artifact_id: body.artifact_id,
+    artifact_version_id: body.artifact_version_id,
+    version_no: body.version_no,
+    content_hash: body.content_hash,
+    current_status: body.current_status,
+    repository_task_count: repositoryTasks.length,
+    markdown_chars: markdown.length,
+    handoff_file: finalPath,
+    handoff_file_sha256: createHash('sha256').update(bodyText).digest('hex'),
+    note: '完整交接包已原样写入本机文件。请直接上传该文件，不要复制或改写正文。',
+  }, null, 2))
 }
 
 /** 会话级 run_id 状态，独立成类便于测试。 */
@@ -110,6 +149,15 @@ export async function callFridayTool(
   try {
     const body = JSON.parse(bodyText)
     runContext.remember(body)
+    if (toolName === 'get_confirmed_blueprint_handoff') {
+      try {
+        return await persistConfirmedHandoff(bodyText, body as Record<string, unknown>)
+      }
+      catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        return textResult(`Friday 蓝图交接包写入本机文件失败: ${message}`, true)
+      }
+    }
     return textResult(JSON.stringify(body, null, 2))
   }
   catch {
