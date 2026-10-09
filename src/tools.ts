@@ -1,10 +1,12 @@
 /**
- * Friday MCP 工具定义（43 个），与服务端 server/mcp_tools/serializers.py 对齐。
+ * Friday MCP 工具定义（44 个），与服务端 server/mcp_tools/serializers.py 对齐。
  *
  * 每个工具对应一个 HTTP 端点 POST {baseUrl}/api/mcp/tools/{name}/。
  * inputSchema 为 JSON Schema（MCP 标准），字段约束镜像 DRF serializer。
  * 服务端是校验唯一真源，schema 漂移时以服务端 400 错误为准。
  */
+
+import { GRAPH_QUERY_MANIFEST } from './generated/graphQueryManifest.js'
 
 export interface FridayToolAnnotations {
   /** 人类可读短标题（中文，带「阶段 · 动作」分组标注）。 */
@@ -51,6 +53,11 @@ const dictList = (description: string) => ({
 })
 
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
+  {
+    name: GRAPH_QUERY_MANIFEST.name,
+    description: GRAPH_QUERY_MANIFEST.description,
+    inputSchema: GRAPH_QUERY_MANIFEST.inputSchema,
+  },
   {
     name: 'route_repositories',
     description: '根据需求描述路由到最相关的已索引仓库，返回排序后的候选仓库与索引健康度。仓库发现的第一步。',
@@ -727,6 +734,7 @@ const executor = (title: string): FridayToolAnnotations => ({
 })
 
 export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
+  graph_query: GRAPH_QUERY_MANIFEST.annotations,
   // 仓库发现
   route_repositories: query('仓库 · 路由发现'),
   get_repository: query('仓库 · 元数据与索引状态'),
