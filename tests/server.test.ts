@@ -18,10 +18,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('fRIDAY_TOOLS', () => {
-  it('定义了与服务端一致的 43 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(43)
+  it('定义了与服务端一致的 55 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(55)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(43)
+    expect(new Set(names).size).toBe(55)
     expect(names).toContain('route_repositories')
     expect(names).toContain('grep_repository')
     expect(names).toContain('execute_coding_plan')
