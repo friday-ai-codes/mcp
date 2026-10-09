@@ -126,13 +126,14 @@ describe('callFridayTool', () => {
       current_status: 'confirmed',
       markdown: marker.repeat(1000),
       repository_tasks: [{ repository_name: 'frontend/app' }],
+      repository_task_count: 1,
       run_id: 'run-handoff',
     }
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(body))
 
     const result = await callFridayTool(
       'get_confirmed_blueprint_handoff',
-      {},
+      { technical_plan_id: body.technical_plan_id, artifact_id: body.artifact_id, artifact_version_id: body.artifact_version_id, content_hash: body.content_hash },
       new RunContext(),
       fetchMock,
       () => CONFIG,
@@ -145,6 +146,17 @@ describe('callFridayTool', () => {
     expect(summary.markdown_chars).toBe(body.markdown.length)
     expect(await readFile(summary.handoff_file, 'utf8')).toBe(JSON.stringify(body))
     await unlink(summary.handoff_file)
+  })
+
+  it('拒绝错误坐标、空任务和未就绪的新版交接包', async () => {
+    const args = { technical_plan_id: 'plan', artifact_id: 'artifact', artifact_version_id: 'version', content_hash: 'a'.repeat(64) }
+    const base = { ...args, current_status: 'confirmed', version_no: 1, markdown: 'blueprint', repository_tasks: [{}], repository_task_count: 1 }
+    for (const change of [{ artifact_id: 'other' }, { repository_tasks: [] }, { current_status: 'pending_review' }, { canonical_content: { delivery_contract_version: 1 }, delivery_readiness: { ready: false } }]) {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ...base, ...change }))
+      const result = await callFridayTool('get_confirmed_blueprint_handoff', args, new RunContext(), fetchMock, () => CONFIG)
+      expect(result.isError).toBe(true)
+      expect(result.content[0]!.text).not.toContain('handoff_file')
+    }
   })
 
   it('401 返回换令牌引导（isError，不抛异常，不泄漏 PAT）', async () => {
