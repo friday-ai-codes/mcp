@@ -17,16 +17,17 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { FridayConfig } from './config.js'
 import { MISSING_CONFIG_MESSAGE, resolveConfig } from './config.js'
 import { FRIDAY_TOOLS, TOOL_ANNOTATIONS } from './tools.js'
+import packageInfo from '../package.json' with { type: 'json' }
 
 export const SERVER_NAME = 'friday'
-export const SERVER_VERSION = '0.2.0'
+export const SERVER_VERSION = packageInfo.version
 
 const REQUEST_TIMEOUT_MS = 120_000
 
@@ -50,13 +51,28 @@ function safeFilePart(value: unknown): string {
 async function persistConfirmedHandoff(
   bodyText: string,
   body: Record<string, unknown>,
+  args: Record<string, unknown>,
 ): Promise<ToolCallResult> {
+  const coordinates = ['technical_plan_id', 'artifact_id', 'artifact_version_id', 'content_hash']
+  if (coordinates.some(key => typeof args[key] !== 'string' || !args[key] || body[key] !== args[key])
+    || body.current_status !== 'confirmed'
+    || !Array.isArray(body.repository_tasks) || body.repository_tasks.length === 0
+    || body.repository_task_count !== body.repository_tasks.length
+    || typeof body.markdown !== 'string' || !body.markdown
+    || !Number.isInteger(body.version_no) || Number(body.version_no) < 1) {
+    return textResult(JSON.stringify({ code: 'handoff_binding_invalid', retryable: false }), true)
+  }
+  const readiness = body.delivery_readiness as { ready?: boolean } | undefined
+  const canonical = body.canonical_content as { delivery_contract_version?: unknown } | undefined
+  if (canonical?.delivery_contract_version !== undefined && readiness?.ready !== true)
+    return textResult(JSON.stringify({ code: 'blueprint_delivery_not_ready', retryable: false }), true)
+
   const directory = join(tmpdir(), 'friday-mcp-handoffs')
   await mkdir(directory, { recursive: true, mode: 0o700 })
 
   const artifactId = safeFilePart(body.artifact_id)
   const versionId = safeFilePart(body.artifact_version_id)
-  const finalPath = join(directory, `blueprint-handoff-${artifactId}-${versionId}.json`)
+  const finalPath = join(directory, `blueprint-handoff-${artifactId}-${versionId}-${randomUUID()}.json`)
   const temporaryPath = `${finalPath}.${process.pid}.tmp`
   await writeFile(temporaryPath, bodyText, { encoding: 'utf8', mode: 0o600 })
   await rename(temporaryPath, finalPath)
@@ -70,6 +86,7 @@ async function persistConfirmedHandoff(
     version_no: body.version_no,
     content_hash: body.content_hash,
     current_status: body.current_status,
+    delivery_readiness: body.delivery_readiness ?? { ready: false, status: 'legacy_unverified' },
     repository_task_count: repositoryTasks.length,
     markdown_chars: markdown.length,
     handoff_file: finalPath,
@@ -151,7 +168,7 @@ export async function callFridayTool(
     runContext.remember(body)
     if (toolName === 'get_confirmed_blueprint_handoff') {
       try {
-        return await persistConfirmedHandoff(bodyText, body as Record<string, unknown>)
+        return await persistConfirmedHandoff(bodyText, body as Record<string, unknown>, args)
       }
       catch (e) {
         const message = e instanceof Error ? e.message : String(e)
