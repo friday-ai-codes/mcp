@@ -8,6 +8,6 @@ describe('graph_query contract discovery', () => {
     expect(tool?.inputSchema).toEqual(GRAPH_QUERY_MANIFEST.inputSchema)
     expect(TOOL_ANNOTATIONS.graph_query).toEqual(GRAPH_QUERY_MANIFEST.annotations)
     expect(tool?.inputSchema.required).toContain('repository_id')
-    expect(TOOL_ANNOTATIONS.graph_query.readOnlyHint).toBe(true)
+    expect(TOOL_ANNOTATIONS.graph_query?.readOnlyHint).toBe(true)
   })
 })

@@ -1,5 +1,5 @@
 /**
- * Friday MCP 工具定义（44 个），与服务端 server/mcp_tools/serializers.py 对齐。
+ * Friday MCP 工具定义（55 个），与服务端 server/mcp_tools/serializers.py 对齐。
  *
  * 每个工具对应一个 HTTP 端点 POST {baseUrl}/api/mcp/tools/{name}/。
  * inputSchema 为 JSON Schema（MCP 标准），字段约束镜像 DRF serializer。
@@ -54,7 +54,490 @@ const dictList = (description: string) => ({
 
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   {
-    name: GRAPH_QUERY_MANIFEST.name,
+    name: 'approve_technical_blueprint',
+    description: "确认指定版本与哈希的技术蓝图；须由调用者明确授权审批。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        artifact_id: {
+          type: "string",
+          maxLength: 64
+        },
+        artifact_version_id: {
+          type: "string",
+          maxLength: 64
+        },
+        content_hash: {
+          type: "string",
+          maxLength: 64,
+          pattern: "^[0-9a-f]{64}$"
+        },
+        technical_plan_id: {
+          type: "string",
+          format: "uuid"
+        }
+      },
+      required: [
+        "artifact_id",
+        "artifact_version_id",
+        "content_hash",
+        "technical_plan_id"
+      ]
+    },
+  },
+  {
+    name: 'request_technical_blueprint_changes',
+    description: "针对指定蓝图版本提出返工意见并保留审批留痕。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        artifact_id: {
+          type: "string",
+          maxLength: 64
+        },
+        comment: {
+          type: "string",
+          default: "",
+          maxLength: 8000
+        },
+        anchor: {
+          type: "object"
+        },
+        rework_scope: {
+          enum: [
+            "review",
+            "merge",
+            "repos",
+            "full"
+          ],
+          type: "string",
+          default: "merge"
+        },
+        rework_repository_ids: {
+          type: "array",
+          items: {
+            type: "string",
+            format: "uuid"
+          },
+          maxItems: 20
+        }
+      },
+      required: [
+        "artifact_id"
+      ]
+    },
+  },
+  {
+    name: 'detect_changes',
+    description: "读取指定仓库两个引用之间的变更摘要与影响线索。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repository_id: {
+          type: "string",
+          format: "uuid"
+        },
+        compare: {
+          type: "string",
+          maxLength: 255
+        },
+        base_ref: {
+          type: "string",
+          nullable: true
+        },
+        max_depth: {
+          type: "integer",
+          maximum: 3,
+          minimum: 1,
+          default: 3
+        },
+        min_confidence: {
+          type: "number",
+          maximum: 1.0,
+          default: 1.0,
+          minimum: 0.0
+        },
+        include_low_confidence: {
+          type: "boolean",
+          default: false
+        },
+        limit: {
+          type: "integer",
+          maximum: 200,
+          minimum: 1,
+          default: 200
+        }
+      },
+      required: [
+        "repository_id",
+        "compare"
+      ]
+    },
+  },
+  {
+    name: 'get_process',
+    description: "读取指定仓库内单条已索引执行流及其证据。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repository_id: {
+          type: "string",
+          format: "uuid"
+        },
+        branch: {
+          type: "string",
+          nullable: true
+        },
+        process_key: {
+          type: "string",
+          maxLength: 640
+        }
+      },
+      required: [
+        "repository_id",
+        "process_key"
+      ]
+    },
+  },
+  {
+    name: 'list_processes',
+    description: "查询指定仓库已索引的执行流列表。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repository_id: {
+          type: "string",
+          format: "uuid"
+        },
+        branch: {
+          type: "string",
+          nullable: true
+        },
+        community_class: {
+          enum: [
+            "intra_community",
+            "cross_community"
+          ],
+          type: "string",
+          nullable: true
+        },
+        symbol_id: {
+          type: "string",
+          format: "uuid",
+          nullable: true
+        },
+        limit: {
+          type: "integer",
+          maximum: 200,
+          minimum: 1,
+          default: 50
+        }
+      },
+      required: [
+        "repository_id"
+      ]
+    },
+  },
+  {
+    name: 'impact_analysis',
+    description: "读取指定符号或文件的有界影响分析与调用证据。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repository_id: {
+          type: "string",
+          format: "uuid"
+        },
+        branch: {
+          type: "string",
+          nullable: true
+        },
+        symbol_id: {
+          type: "string",
+          format: "uuid",
+          nullable: true
+        },
+        symbol: {
+          type: "string",
+          default: ""
+        },
+        file_path: {
+          type: "string",
+          default: ""
+        },
+        symbol_type: {
+          type: "string",
+          default: ""
+        },
+        max_depth: {
+          type: "integer",
+          maximum: 3,
+          minimum: 1,
+          default: 3
+        },
+        min_confidence: {
+          type: "number",
+          maximum: 1.0,
+          default: 1.0,
+          minimum: 0.0
+        },
+        include_low_confidence: {
+          type: "boolean",
+          default: false
+        },
+        limit: {
+          type: "integer",
+          maximum: 200,
+          minimum: 1,
+          default: 200
+        },
+        max_cross_repo_hops: {
+          type: "integer",
+          maximum: 1,
+          default: 1,
+          minimum: 0
+        },
+        exclude_test_files: {
+          type: "boolean",
+          default: false
+        }
+      },
+      required: [
+        "repository_id"
+      ]
+    },
+  },
+  {
+    name: 'rename_preview',
+    description: "预览符号重命名影响；只生成预览，不修改仓库文件。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repository_id: {
+          type: "string",
+          format: "uuid"
+        },
+        branch: {
+          type: "string",
+          nullable: true
+        },
+        symbol_id: {
+          type: "string",
+          format: "uuid",
+          nullable: true
+        },
+        symbol: {
+          type: "string",
+          default: ""
+        },
+        file_path: {
+          type: "string",
+          default: ""
+        },
+        symbol_type: {
+          type: "string",
+          default: ""
+        },
+        new_name: {
+          type: "string",
+          maxLength: 512
+        },
+        context_lines: {
+          type: "integer",
+          maximum: 5,
+          default: 2,
+          minimum: 0
+        }
+      },
+      required: [
+        "repository_id",
+        "new_name"
+      ]
+    },
+  },
+  {
+    name: 'trace_call_path',
+    description: "在指定仓库中查询符号之间的调用路径。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repository_id: {
+          type: "string",
+          format: "uuid"
+        },
+        branch: {
+          type: "string",
+          nullable: true
+        },
+        source_symbol_id: {
+          type: "string",
+          format: "uuid",
+          nullable: true
+        },
+        source: {
+          type: "string",
+          default: ""
+        },
+        source_file_path: {
+          type: "string",
+          default: ""
+        },
+        target_symbol_id: {
+          type: "string",
+          format: "uuid",
+          nullable: true
+        },
+        target: {
+          type: "string",
+          default: ""
+        },
+        target_file_path: {
+          type: "string",
+          default: ""
+        },
+        min_confidence: {
+          type: "number",
+          maximum: 1.0,
+          default: 1.0,
+          minimum: 0.0
+        },
+        include_low_confidence: {
+          type: "boolean",
+          default: false
+        },
+        alt_path_cap: {
+          type: "integer",
+          maximum: 50,
+          minimum: 1,
+          default: 10
+        }
+      },
+      required: [
+        "repository_id"
+      ]
+    },
+  },
+  {
+    name: 'report_session_knowledge',
+    description: "提交会话知识与证据供服务端评估和留痕。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: {
+          type: "string",
+          maxLength: 20000
+        },
+        answer: {
+          type: "string",
+          maxLength: 20000
+        },
+        repository_id: {
+          type: "string",
+          format: "uuid",
+          nullable: true
+        },
+        git_url: {
+          type: "string",
+          default: "",
+          maxLength: 500
+        },
+        branch_name: {
+          type: "string",
+          default: "",
+          maxLength: 255
+        },
+        project_id: {
+          type: "string",
+          format: "uuid",
+          nullable: true
+        },
+        session_id: {
+          type: "string",
+          default: "",
+          maxLength: 255
+        },
+        response_model: {
+          type: "string",
+          default: "",
+          maxLength: 128
+        },
+        provider: {
+          type: "string",
+          default: "",
+          maxLength: 64
+        },
+        input_tokens: {
+          type: "string",
+          default: "",
+          maxLength: 64
+        },
+        output_tokens: {
+          type: "string",
+          default: "",
+          maxLength: 64
+        },
+        client: {
+          type: "string",
+          default: "",
+          maxLength: 255
+        }
+      },
+      required: [
+        "question",
+        "answer"
+      ]
+    },
+  },
+  {
+    name: 'search_session_knowledge',
+    description: "按可访问范围检索已采集的会话知识。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          maxLength: 4000
+        },
+        repository_id: {
+          type: "string",
+          format: "uuid"
+        },
+        project_id: {
+          type: "string",
+          format: "uuid",
+          nullable: true
+        },
+        top_k: {
+          type: "integer",
+          maximum: 20,
+          minimum: 1,
+          default: 5
+        }
+      },
+      required: [
+        "query",
+        "repository_id"
+      ]
+    },
+  },
+  {
+    name: 'get_session_capture',
+    description: "读取一条会话采集记录及其证据。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        capture_id: {
+          type: "string",
+          format: "uuid"
+        }
+      },
+      required: [
+        "capture_id"
+      ]
+    },
+  },
+  {
+    name: 'graph_query',
     description: GRAPH_QUERY_MANIFEST.description,
     inputSchema: GRAPH_QUERY_MANIFEST.inputSchema,
   },
@@ -734,6 +1217,17 @@ const executor = (title: string): FridayToolAnnotations => ({
 })
 
 export const TOOL_ANNOTATIONS: Record<string, FridayToolAnnotations> = {
+  approve_technical_blueprint: { title: '蓝图 · 确认版本', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  request_technical_blueprint_changes: { title: '蓝图 · 请求返工', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  detect_changes: { title: '代码图谱 · 变更检测', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  get_process: { title: '代码图谱 · 执行流详情', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  list_processes: { title: '代码图谱 · 执行流列表', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  impact_analysis: { title: '代码图谱 · 影响分析', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  rename_preview: { title: '代码图谱 · 重命名预览', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  trace_call_path: { title: '代码图谱 · 调用路径', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  report_session_knowledge: { title: '会话知识 · 提交证据', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  search_session_knowledge: { title: '会话知识 · 搜索', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  get_session_capture: { title: '会话知识 · 采集详情', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   graph_query: GRAPH_QUERY_MANIFEST.annotations,
   // 仓库发现
   route_repositories: query('仓库 · 路由发现'),
