@@ -92,7 +92,9 @@ async function runInit(argv: string[]): Promise<number> {
 
 function parseRegisterArgs(argv: string[]): { agents: AgentName[], project: boolean, error?: string } {
   const agents: AgentName[] = []
-  let project = false
+  let project = true
+  let explicitProject = false
+  let explicitGlobal = false
   let all = false
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -106,12 +108,19 @@ function parseRegisterArgs(argv: string[]): { agents: AgentName[], project: bool
       all = true
     }
     else if (arg === '--project') {
+      explicitProject = true
       project = true
+    }
+    else if (arg === '--global' || arg === '-g') {
+      explicitGlobal = true
+      project = false
     }
     else {
       return { agents: [], project, error: `未知参数: ${arg}` }
     }
   }
+  if (explicitProject && explicitGlobal)
+    return { agents: [], project, error: '--project 与 --global 不能同时使用' }
   if (all)
     return { agents: [...SUPPORTED_AGENTS], project }
   if (agents.length > 0)
@@ -123,7 +132,7 @@ async function runRegister(argv: string[]): Promise<number> {
   const { agents, project, error } = parseRegisterArgs(argv)
   if (error) {
     console.error(error)
-    console.error('用法: friday-mcp register [--agent cursor|claude-code|codex]... [--all] [--project]')
+    console.error('用法: friday-mcp register [--agent cursor|claude-code|codex]... [--all] [--project|--global]')
     return 1
   }
   if (agents.length === 0) {
@@ -147,8 +156,36 @@ async function runRegister(argv: string[]): Promise<number> {
   return failed ? 1 : 0
 }
 
-async function runDoctor(): Promise<number> {
-  const statuses = registrationStatus()
+function parseScopeArgs(argv: string[]): { project: boolean, error?: string } {
+  let project = true
+  let explicitProject = false
+  let explicitGlobal = false
+  for (const arg of argv) {
+    if (arg === '--project') {
+      explicitProject = true
+      project = true
+    }
+    else if (arg === '--global' || arg === '-g') {
+      explicitGlobal = true
+      project = false
+    }
+    else {
+      return { project, error: `未知参数: ${arg}` }
+    }
+  }
+  if (explicitProject && explicitGlobal)
+    return { project, error: '--project 与 --global 不能同时使用' }
+  return { project }
+}
+
+async function runDoctor(argv: string[]): Promise<number> {
+  const scope = parseScopeArgs(argv)
+  if (scope.error) {
+    console.error(scope.error)
+    console.error('用法: friday-mcp doctor [--project|--global]')
+    return 1
+  }
+  const statuses = registrationStatus({ project: scope.project })
   if (statuses.length === 0) {
     console.log('注册状态: 未探测到已安装的 agent')
   }
@@ -182,11 +219,12 @@ async function runDoctor(): Promise<number> {
 function usage(): void {
   console.log(banner(SERVER_VERSION))
   console.log(`${pc.bold('用法')}
-  npx -y @friday-ai-codes/mcp setup      ${pc.dim('# 交互式中文向导：凭证 → 注册 → 测速 → 演示（推荐）')}
+  npx -y @friday-ai-codes/mcp setup      ${pc.dim('# 交互式中文向导：凭证 → 当前项目注册 → 测速 → 演示（推荐）')}
+  npx -y @friday-ai-codes/mcp setup --global ${pc.dim('# 明确注册到用户全局')}
   npx -y @friday-ai-codes/mcp init       ${pc.dim('# 仅配置凭证（无参数进入交互式问答）')}
   npx -y @friday-ai-codes/mcp init --base-url <地址> --token <令牌>
-  npx -y @friday-ai-codes/mcp register   ${pc.dim('# 注册进 Cursor / Claude Code / Codex')}
-  npx -y @friday-ai-codes/mcp doctor     ${pc.dim('# 诊断：配置 / 注册状态 / 连通性测速')}
+  npx -y @friday-ai-codes/mcp register   ${pc.dim('# 注册进当前项目的 Cursor / Claude Code / Codex 配置')}
+  npx -y @friday-ai-codes/mcp doctor     ${pc.dim('# 诊断当前项目：配置 / 注册状态 / 连通性测速')}
   npx -y @friday-ai-codes/mcp serve      ${pc.dim('# 启动 stdio MCP server（agent 调用，勿手动运行）')}
 `)
 }
@@ -195,8 +233,15 @@ async function main(): Promise<void> {
   const [, , command, ...rest] = process.argv
 
   if (command === 'setup') {
+    const scope = parseScopeArgs(rest)
+    if (scope.error) {
+      console.error(scope.error)
+      console.error('用法: friday-mcp setup [--project|--global]')
+      process.exitCode = 1
+      return
+    }
     console.log(banner(SERVER_VERSION))
-    process.exitCode = await runSetup()
+    process.exitCode = await runSetup({ project: scope.project })
     return
   }
 
@@ -206,7 +251,7 @@ async function main(): Promise<void> {
   }
 
   if (command === 'doctor') {
-    process.exitCode = await runDoctor()
+    process.exitCode = await runDoctor(rest)
     return
   }
 

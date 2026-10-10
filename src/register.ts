@@ -1,9 +1,9 @@
 /**
  * 把 friday MCP server 注册进各 agent 的配置（幂等）。
  *
- * - cursor: ~/.cursor/mcp.json（--project 时 ./.cursor/mcp.json）JSON 读-改-写
- * - claude-code: 优先执行 `claude mcp add`，无 claude 命令则打印手动指引
- * - codex: ~/.codex/config.toml 追加 [mcp_servers.friday] 片段（文本探测，存在即跳过）
+ * - cursor: 默认 ./.cursor/mcp.json；显式 --global 时写 ~/.cursor/mcp.json
+ * - claude-code: 默认 project scope；显式 --global 时写 user scope
+ * - codex: 默认 ./.codex/config.toml；显式 --global 时写 ~/.codex/config.toml
  *
  * 只新增 friday 条目，绝不覆盖或删除用户已有配置。
  */
@@ -51,14 +51,16 @@ export function detectAgents(): AgentName[] {
   return found
 }
 
-export function cursorConfigPath(project: boolean): string {
+export function cursorConfigPath(project = true): string {
   return project
     ? path.join(process.cwd(), '.cursor', 'mcp.json')
     : path.join(homeDir(), '.cursor', 'mcp.json')
 }
 
-export function codexConfigPath(): string {
-  return path.join(homeDir(), '.codex', 'config.toml')
+export function codexConfigPath(project = true): string {
+  return project
+    ? path.join(process.cwd(), '.codex', 'config.toml')
+    : path.join(homeDir(), '.codex', 'config.toml')
 }
 
 function registerCursor(project: boolean): RegisterResult {
@@ -88,12 +90,11 @@ function registerClaudeCode(project: boolean): RegisterResult {
     return {
       agent: 'claude-code',
       status: 'manual',
-      detail: '未找到 claude 命令。手动运行: claude mcp add --scope user friday -- npx -y @friday-ai-codes/mcp',
+      detail: `未找到 claude 命令。手动运行: claude mcp add --scope ${project ? 'project' : 'user'} friday -- npx -y @friday-ai-codes/mcp`,
     }
   }
   try {
-    // 缺省注册到 user scope（全局生效）；--project 时用 claude 默认的 local scope
-    const scopeArgs = project ? [] : ['--scope', 'user']
+    const scopeArgs = ['--scope', project ? 'project' : 'user']
     const output = execFileSync(
       'claude',
       ['mcp', 'add', ...scopeArgs, 'friday', '--', 'npx', '-y', '@friday-ai-codes/mcp'],
@@ -116,8 +117,8 @@ command = "npx"
 args = ["-y", "@friday-ai-codes/mcp"]
 `
 
-function registerCodex(): RegisterResult {
-  const file = codexConfigPath()
+function registerCodex(project: boolean): RegisterResult {
+  const file = codexConfigPath(project)
   const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : ''
   if (/^\s*\[mcp_servers\.friday\]/m.test(existing))
     return { agent: 'codex', status: 'already', detail: `${file} 已存在 [mcp_servers.friday]` }
@@ -129,21 +130,23 @@ function registerCodex(): RegisterResult {
 }
 
 export function registerAgent(agent: AgentName, options: { project?: boolean } = {}): RegisterResult {
+  const project = options.project ?? true
   switch (agent) {
     case 'cursor':
-      return registerCursor(options.project ?? false)
+      return registerCursor(project)
     case 'claude-code':
-      return registerClaudeCode(options.project ?? false)
+      return registerClaudeCode(project)
     case 'codex':
-      return registerCodex()
+      return registerCodex(project)
   }
 }
 
 /** doctor 用：检查各 agent 配置中 friday MCP 的注册状态（不修改任何文件）。 */
-export function registrationStatus(): Array<{ agent: AgentName, registered: boolean, location: string }> {
+export function registrationStatus(options: { project?: boolean } = {}): Array<{ agent: AgentName, registered: boolean, location: string }> {
   const results: Array<{ agent: AgentName, registered: boolean, location: string }> = []
+  const project = options.project ?? true
 
-  const cursorFile = cursorConfigPath(false)
+  const cursorFile = cursorConfigPath(project)
   if (fs.existsSync(path.join(homeDir(), '.cursor'))) {
     let registered = false
     try {
@@ -158,19 +161,22 @@ export function registrationStatus(): Array<{ agent: AgentName, registered: bool
 
   if (hasClaudeCli() || fs.existsSync(path.join(homeDir(), '.claude'))) {
     let registered = false
-    if (hasClaudeCli()) {
+    const claudeFile = project
+      ? path.join(process.cwd(), '.mcp.json')
+      : path.join(homeDir(), '.claude.json')
+    if (fs.existsSync(claudeFile)) {
       try {
-        const output = execFileSync('claude', ['mcp', 'list'], { encoding: 'utf-8' })
-        registered = /^friday[:\s]/m.test(output) || /\bfriday\b/.test(output)
+        const config = JSON.parse(fs.readFileSync(claudeFile, 'utf-8'))
+        registered = Boolean(config?.mcpServers?.friday)
       }
       catch {
         registered = false
       }
     }
-    results.push({ agent: 'claude-code', registered, location: 'claude mcp list' })
+    results.push({ agent: 'claude-code', registered, location: claudeFile })
   }
 
-  const codexFile = codexConfigPath()
+  const codexFile = codexConfigPath(project)
   if (fs.existsSync(path.join(homeDir(), '.codex'))) {
     const content = fs.existsSync(codexFile) ? fs.readFileSync(codexFile, 'utf-8') : ''
     results.push({
