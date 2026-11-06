@@ -23,11 +23,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { FridayConfig } from './config.js'
 import { MISSING_CONFIG_MESSAGE, resolveConfig } from './config.js'
-import { FRIDAY_TOOLS, TOOL_ANNOTATIONS } from './tools.js'
+import { FRIDAY_TOOLS } from './tools.js'
 import packageInfo from '../package.json' with { type: 'json' }
 
 export const SERVER_NAME = 'friday'
 export const SERVER_VERSION = packageInfo.version
+
+const toolsByName = new Map(FRIDAY_TOOLS.map(tool => [tool.name, tool]))
 
 const REQUEST_TIMEOUT_MS = 120_000
 
@@ -118,11 +120,15 @@ export async function callFridayTool(
   fetchImpl: typeof fetch = fetch,
   configResolver: () => FridayConfig | null = resolveConfig,
 ): Promise<ToolCallResult> {
+  const tool = toolsByName.get(toolName)
+  if (!tool)
+    return textResult('未知工具', true)
+
   const config = configResolver()
   if (!config)
     return textResult(MISSING_CONFIG_MESSAGE, true)
 
-  const url = `${config.baseUrl}/api/mcp/tools/${toolName}/`
+  const url = `${config.baseUrl}${tool.endpoint}`
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${config.accessToken}`,
     'Content-Type': 'application/json',
@@ -192,18 +198,16 @@ export function createServer(): Server {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: FRIDAY_TOOLS.map(t => ({
       name: t.name,
-      title: TOOL_ANNOTATIONS[t.name]?.title,
+      title: t.annotations.title,
       description: t.description,
       inputSchema: t.inputSchema,
-      annotations: TOOL_ANNOTATIONS[t.name],
+      outputSchema: t.outputSchema,
+      annotations: t.annotations,
     })),
   }))
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params
-    const known = FRIDAY_TOOLS.some(t => t.name === name)
-    if (!known)
-      return textResult(`未知工具: ${name}`, true)
     return callFridayTool(name, (args ?? {}) as Record<string, unknown>, runContext)
   })
 

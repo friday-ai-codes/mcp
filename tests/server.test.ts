@@ -5,7 +5,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { readFile, unlink } from 'node:fs/promises'
 import { MISSING_CONFIG_MESSAGE } from '../src/config.js'
-import { callFridayTool, RunContext } from '../src/server.js'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { callFridayTool, createServer, RunContext } from '../src/server.js'
 import { FRIDAY_TOOLS, TOOL_ANNOTATIONS } from '../src/tools.js'
 
 const CONFIG = { baseUrl: 'https://friday.internal', accessToken: 'secret-pat' }
@@ -18,6 +20,29 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('fRIDAY_TOOLS', () => {
+  it('lists every generated contract through MCP discovery', async () => {
+    const server = createServer()
+    const client = new Client({ name: 'catalog-test', version: '1' })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    try {
+      await server.connect(serverTransport)
+      await client.connect(clientTransport)
+      const { tools } = await client.listTools()
+      expect(tools).toEqual(FRIDAY_TOOLS.map(tool => ({
+        name: tool.name,
+        title: tool.annotations.title,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        outputSchema: tool.outputSchema,
+        annotations: tool.annotations,
+      })))
+    }
+    finally {
+      await client.close()
+      await server.close()
+    }
+  })
+
   it('定义了与服务端一致的 55 个工具', () => {
     expect(FRIDAY_TOOLS).toHaveLength(55)
     const names = FRIDAY_TOOLS.map(t => t.name)
@@ -76,6 +101,30 @@ describe('fRIDAY_TOOLS', () => {
 })
 
 describe('callFridayTool', () => {
+  // Tools present in Django while the stdio catalog still had 43 entries.
+  it.each([
+    'approve_technical_blueprint', 'detect_changes', 'get_process', 'get_session_capture',
+    'graph_query', 'impact_analysis', 'list_processes', 'rename_preview',
+    'report_session_knowledge', 'request_technical_blueprint_changes',
+    'search_session_knowledge', 'trace_call_path',
+  ])('dispatches %s to its established HTTP endpoint', async (name) => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ run_id: 'run-1' }))
+    const args = { probe: name }
+    const result = await callFridayTool(name, args, new RunContext(), fetchMock, () => CONFIG)
+    expect(result.isError).toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledWith(`${CONFIG.baseUrl}/api/mcp/tools/${name}/`, expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify(args),
+    }))
+  })
+
+  it.each(['await_blueprint_context', '../private', '__proto__'])('拒绝未注册工具 %s', async (name) => {
+    const fetchMock = vi.fn()
+    const result = await callFridayTool(name, {}, new RunContext(), fetchMock, () => CONFIG)
+    expect(result.isError).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('缺配置时返回 isError 引导文案，不发请求', async () => {
     const fetchMock = vi.fn()
     const result = await callFridayTool('route_repositories', {}, new RunContext(), fetchMock, () => null)
