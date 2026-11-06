@@ -8,6 +8,7 @@
  * 只新增 friday 条目，绝不覆盖或删除用户已有配置。
  */
 
+import { PINNED_PACKAGE } from './packageIdentity.js'
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -17,7 +18,7 @@ export type AgentName = 'cursor' | 'claude-code' | 'codex'
 
 export const SUPPORTED_AGENTS: AgentName[] = ['cursor', 'claude-code', 'codex']
 
-const SERVER_ENTRY = { command: 'npx', args: ['-y', '@friday-ai-codes/mcp'] }
+const SERVER_ENTRY = { command: 'npx', args: ['-y', PINNED_PACKAGE] }
 
 export interface RegisterResult {
   agent: AgentName
@@ -88,7 +89,7 @@ function registerClaudeCode(project: boolean): RegisterResult {
     return {
       agent: 'claude-code',
       status: 'manual',
-      detail: '未找到 claude 命令。手动运行: claude mcp add --scope user friday -- npx -y @friday-ai-codes/mcp',
+      detail: `未找到 claude 命令。手动运行: claude mcp add --scope user friday -- npx -y ${PINNED_PACKAGE}`,
     }
   }
   try {
@@ -96,7 +97,7 @@ function registerClaudeCode(project: boolean): RegisterResult {
     const scopeArgs = project ? [] : ['--scope', 'user']
     const output = execFileSync(
       'claude',
-      ['mcp', 'add', ...scopeArgs, 'friday', '--', 'npx', '-y', '@friday-ai-codes/mcp'],
+      ['mcp', 'add', ...scopeArgs, 'friday', '--', 'npx', '-y', PINNED_PACKAGE],
       { encoding: 'utf-8' },
     )
     return { agent: 'claude-code', status: 'registered', detail: output.trim() || 'claude mcp add 完成' }
@@ -113,7 +114,7 @@ function registerClaudeCode(project: boolean): RegisterResult {
 const CODEX_SNIPPET = `
 [mcp_servers.friday]
 command = "npx"
-args = ["-y", "@friday-ai-codes/mcp"]
+args = ["-y", "${PINNED_PACKAGE}"]
 `
 
 function registerCodex(): RegisterResult {

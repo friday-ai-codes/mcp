@@ -23,10 +23,10 @@ import { isObject, persistConfirmedHandoff, success } from './resultAdapters.js'
 import type { FridayConfig } from './config.js'
 import { resolveConfig } from './config.js'
 import { FRIDAY_TOOLS } from './tools.js'
-import packageInfo from '../package.json' with { type: 'json' }
+import { SERVER_VERSION } from './packageIdentity.js'
 
 export const SERVER_NAME = 'friday'
-export const SERVER_VERSION = packageInfo.version
+export { SERVER_VERSION }
 
 const provider = new AjvJsonSchemaValidator()
 const toolsByName = new Map(FRIDAY_TOOLS.map(tool => [tool.name, {
