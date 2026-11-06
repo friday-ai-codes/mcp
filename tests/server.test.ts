@@ -71,6 +71,29 @@ describe('fRIDAY_TOOLS', () => {
     }
   })
 
+  it('returns a structured cursor error before the first upstream request', async () => {
+    const client = new Client({ name: 'diagnostic-client', version: '1' })
+    const server = createServer()
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    try {
+      await server.connect(serverTransport)
+      await client.connect(clientTransport)
+      await client.listTools()
+      const result = await client.callTool({
+        name: 'get_blueprint_events',
+        arguments: { session_id: 'a82dbbfa-b358-4ece-9eb4-10ec3df6fd46', limit: 101 },
+      })
+      expect(result.isError).toBe(true)
+      expect(result.structuredContent).toEqual({
+        error_code: 'invalid_params', http_status: 400, retryable: false, run_id: null,
+      })
+    }
+    finally {
+      await client.close()
+      await server.close()
+    }
+  })
+
   it('定义了与服务端一致的 62 个工具', () => {
     expect(FRIDAY_TOOLS).toHaveLength(62)
     const names = FRIDAY_TOOLS.map(t => t.name)

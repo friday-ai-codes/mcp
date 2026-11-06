@@ -28,7 +28,7 @@ export interface BlueprintOperationReceipt {
 }
 
 export const CLIENT_CONTRACT_VERSION = "mcp-tools/v1"
-export const CLIENT_MANIFEST_HASH = "abecd16cfec3cd5f14854666d1f3d08c1cc22da9ba59d1261c9c8ea4a3903554"
+export const CLIENT_MANIFEST_HASH = "790caee1d923fe81f5c86238d3c8d15f9d63f08411fa3f87c9136aee4888a894"
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   {
     "annotations": {
@@ -1965,6 +1965,12 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
               "error_code"
             ]
           },
+          "properties": {
+            "run_id": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
           "required": [
             "run_id",
             "session_id",
@@ -2076,7 +2082,10 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         },
         "run_id": {
           "minLength": 1,
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "session_id": {
           "format": "uuid",
@@ -2150,6 +2159,12 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
             "required": [
               "error_code"
             ]
+          },
+          "properties": {
+            "run_id": {
+              "minLength": 1,
+              "type": "string"
+            }
           },
           "required": [
             "run_id",
@@ -2317,7 +2332,10 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         },
         "run_id": {
           "minLength": 1,
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "session_id": {
           "format": "uuid",
@@ -2492,6 +2510,12 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
             "required": [
               "error_code"
             ]
+          },
+          "properties": {
+            "run_id": {
+              "minLength": 1,
+              "type": "string"
+            }
           },
           "required": [
             "run_id",
@@ -2669,7 +2693,10 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         },
         "run_id": {
           "minLength": 1,
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "session_id": {
           "format": "uuid",
@@ -2743,6 +2770,12 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
             "required": [
               "error_code"
             ]
+          },
+          "properties": {
+            "run_id": {
+              "minLength": 1,
+              "type": "string"
+            }
           },
           "required": [
             "run_id",
@@ -3026,7 +3059,10 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         },
         "run_id": {
           "minLength": 1,
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "session_id": {
           "format": "uuid",
@@ -3163,6 +3199,12 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
             "required": [
               "error_code"
             ]
+          },
+          "properties": {
+            "run_id": {
+              "minLength": 1,
+              "type": "string"
+            }
           },
           "required": [
             "run_id",
@@ -3323,7 +3365,10 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         },
         "run_id": {
           "minLength": 1,
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "session_id": {
           "format": "uuid",
