@@ -43,7 +43,7 @@ describe('fRIDAY_TOOLS', () => {
       const { tools } = await client.listTools()
       // Assert domain effects independently of the generated catalog used by the server.
       const effects = new Map(tools.map(tool => [tool.name, tool.annotations]))
-      for (const name of ['get_blueprint_operation', 'get_technical_blueprint', 'read_blueprint_context', 'get_repo_research', 'route_blueprint_repos']) {
+      for (const name of ['get_blueprint_status', 'get_blueprint_review', 'get_blueprint_repositories', 'get_blueprint_merge_rounds', 'get_blueprint_events', 'get_blueprint_operation', 'get_technical_blueprint', 'read_blueprint_context', 'get_repo_research', 'route_blueprint_repos']) {
         expect(effects.get(name), name).toMatchObject({ readOnlyHint: true, idempotentHint: true })
       }
       for (const name of ['report_blueprint_context', 'answer_blueprint_clarification', 'confirm_feature_tech_plan',
@@ -71,10 +71,10 @@ describe('fRIDAY_TOOLS', () => {
     }
   })
 
-  it('定义了与服务端一致的 57 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(57)
+  it('定义了与服务端一致的 62 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(62)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(57)
+    expect(new Set(names).size).toBe(62)
     expect(names).toContain('route_repositories')
     expect(names).toContain('grep_repository')
     expect(names).toContain('execute_coding_plan')
@@ -129,6 +129,23 @@ describe('fRIDAY_TOOLS', () => {
 })
 
 describe('callFridayTool', () => {
+  it('validates a diagnostic cursor and preserves the service-issued error coordinates', async () => {
+    const run_id = 'a82dbbfa-b358-4ece-9eb4-10ec3df6fd46'
+    const name = 'get_blueprint_events'
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      error_code: 'unavailable', retryable: true, run_id, retry_scope: name, detail: 'private',
+    }, 503))
+    const context = new RunContext()
+    const read = (args: Record<string, unknown>) => callFridayTool(name, args, context, fetchMock, () => CONFIG)
+    expect((await read({ session_id: run_id, limit: 101 })).structuredContent.error_code).toBe('invalid_params')
+    expect(fetchMock).not.toHaveBeenCalled()
+    const result = await read({ session_id: run_id, limit: 1, since_seq: 4 })
+    expect(result.structuredContent).toEqual({ error_code: 'unavailable', retryable: true,
+      http_status: 503, run_id, retry_scope: name })
+    expect(JSON.stringify(result)).not.toContain('private')
+    expect(context.runId).toBe(run_id)
+  })
+
   it('round-trips blueprint receipts and preserves the stable idempotency conflict', async () => {
     const operation_id = '1366baaa-2f1e-4bf9-bee3-1606c9ff8f88'
     const receipt = {

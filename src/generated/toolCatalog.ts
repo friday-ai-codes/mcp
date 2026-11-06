@@ -28,7 +28,7 @@ export interface BlueprintOperationReceipt {
 }
 
 export const CLIENT_CONTRACT_VERSION = "mcp-tools/v1"
-export const CLIENT_MANIFEST_HASH = "300602761b08aca9e16ab3aa27fc42e77877af31b651579d7a4e62126d40592f"
+export const CLIENT_MANIFEST_HASH = "abecd16cfec3cd5f14854666d1f3d08c1cc22da9ba59d1261c9c8ea4a3903554"
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   {
     "annotations": {
@@ -1899,6 +1899,441 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true,
+      "title": "蓝图 · 读取公开蓝图事件，使用 max_seq 继续分页"
+    },
+    "description": "读取公开蓝图事件，使用 max_seq 继续分页。",
+    "endpoint": "/api/mcp/tools/get_blueprint_events/",
+    "inputSchema": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "operation_id"
+          ]
+        },
+        {
+          "required": [
+            "session_id"
+          ]
+        },
+        {
+          "required": [
+            "artifact_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "since_seq": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "get_blueprint_events",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "required": [
+            "run_id",
+            "session_id",
+            "artifact_id",
+            "completeness",
+            "missing_fields",
+            "empty_reason",
+            "events",
+            "max_seq",
+            "has_more"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retry_scope": {
+              "const": "get_blueprint_events"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "completeness": {
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "type": "string"
+        },
+        "empty_reason": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "events": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "event": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "payload": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "seq": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "ts": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "seq",
+              "event",
+              "ts",
+              "payload"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "max_seq": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "missing_fields": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-get-blueprint-events"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "蓝图 · 按轮查看不可变的融合校验、覆盖与退回目标"
+    },
+    "description": "按轮查看不可变的融合校验、覆盖与退回目标。",
+    "endpoint": "/api/mcp/tools/get_blueprint_merge_rounds/",
+    "inputSchema": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "operation_id"
+          ]
+        },
+        {
+          "required": [
+            "session_id"
+          ]
+        },
+        {
+          "required": [
+            "artifact_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "round": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "get_blueprint_merge_rounds",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "required": [
+            "run_id",
+            "session_id",
+            "artifact_id",
+            "completeness",
+            "missing_fields",
+            "empty_reason",
+            "rounds"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retry_scope": {
+              "const": "get_blueprint_merge_rounds"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "completeness": {
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "type": "string"
+        },
+        "empty_reason": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "missing_fields": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rounds": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "artifact_version_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "attempt": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "back_repository_id": {
+                "type": "string"
+              },
+              "back_target": {
+                "type": "string"
+              },
+              "baseline_content_hash": {
+                "type": "string"
+              },
+              "baseline_version_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "content_hash": {
+                "type": "string"
+              },
+              "coverage": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "coverage_min": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "gap_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "gaps": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "round": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "validation": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "round",
+              "attempt",
+              "validation",
+              "reason",
+              "coverage",
+              "coverage_min",
+              "gap_count",
+              "gaps",
+              "back_target",
+              "back_repository_id",
+              "baseline_version_id",
+              "baseline_content_hash",
+              "artifact_version_id",
+              "content_hash",
+              "retryable"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-get-blueprint-merge-rounds"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
       "title": "蓝图 · 查询操作"
     },
     "description": "按受理回执的 operation_id 读取蓝图当前状态、下次轮询间隔和可用动作。",
@@ -1997,6 +2432,918 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "type": "object"
     },
     "route_name": "mcp-tool-get-blueprint-operation"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "蓝图 · 查看每仓研究与分仓方案的状态、尝试次数和产物引用"
+    },
+    "description": "查看每仓研究与分仓方案的状态、尝试次数和产物引用。",
+    "endpoint": "/api/mcp/tools/get_blueprint_repositories/",
+    "inputSchema": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "operation_id"
+          ]
+        },
+        {
+          "required": [
+            "session_id"
+          ]
+        },
+        {
+          "required": [
+            "artifact_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "get_blueprint_repositories",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "required": [
+            "run_id",
+            "session_id",
+            "artifact_id",
+            "completeness",
+            "missing_fields",
+            "empty_reason",
+            "repositories"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retry_scope": {
+              "const": "get_blueprint_repositories"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "completeness": {
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "type": "string"
+        },
+        "empty_reason": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "missing_fields": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "repositories": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "attempt": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "content_hash": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "context_entry": {
+                "additionalProperties": true,
+                "properties": {
+                  "entry_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "seq": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "entry_id",
+                  "seq"
+                ],
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "degraded": {
+                "type": "boolean"
+              },
+              "error": {
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "partial_plan_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "repository_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "retry_scope": {
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "role": {
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stage": {
+                "enum": [
+                  "research",
+                  "repo_plan"
+                ],
+                "type": "string"
+              },
+              "status": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "context_entry",
+              "repository_id",
+              "stage",
+              "role",
+              "status",
+              "attempt",
+              "degraded",
+              "error",
+              "partial_plan_id",
+              "content_hash",
+              "retryable",
+              "retry_scope"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-get-blueprint-repositories"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "蓝图 · 查看评审发现、可回答澄清、失锚线程与未决阻塞项"
+    },
+    "description": "查看评审发现、可回答澄清、失锚线程与未决阻塞项。",
+    "endpoint": "/api/mcp/tools/get_blueprint_review/",
+    "inputSchema": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "operation_id"
+          ]
+        },
+        {
+          "required": [
+            "session_id"
+          ]
+        },
+        {
+          "required": [
+            "artifact_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "artifact_version_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "get_blueprint_review",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "required": [
+            "run_id",
+            "session_id",
+            "artifact_id",
+            "completeness",
+            "missing_fields",
+            "empty_reason",
+            "round",
+            "findings",
+            "clarifications",
+            "orphaned_threads",
+            "unresolved_blockers"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retry_scope": {
+              "const": "get_blueprint_review"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "clarifications": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "anchor_status": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "answerable": {
+                "type": "boolean"
+              },
+              "artifact_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "artifact_version_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "blocking": {
+                "type": "boolean"
+              },
+              "kind": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "round": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "severity": {
+                "type": "string"
+              },
+              "status": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "thread_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "thread_id",
+              "artifact_id",
+              "kind",
+              "severity",
+              "status",
+              "blocking",
+              "anchor_status",
+              "summary",
+              "artifact_version_id",
+              "round",
+              "answerable"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "completeness": {
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "type": "string"
+        },
+        "empty_reason": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "findings": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "anchor_status": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "answerable": {
+                "type": "boolean"
+              },
+              "artifact_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "artifact_version_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "blocking": {
+                "type": "boolean"
+              },
+              "kind": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "round": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "severity": {
+                "type": "string"
+              },
+              "status": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "thread_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "thread_id",
+              "artifact_id",
+              "kind",
+              "severity",
+              "status",
+              "blocking",
+              "anchor_status",
+              "summary",
+              "artifact_version_id",
+              "round",
+              "answerable"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "missing_fields": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "orphaned_threads": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "anchor_status": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "answerable": {
+                "type": "boolean"
+              },
+              "artifact_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "artifact_version_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "blocking": {
+                "type": "boolean"
+              },
+              "kind": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "round": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "severity": {
+                "type": "string"
+              },
+              "status": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "thread_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "thread_id",
+              "artifact_id",
+              "kind",
+              "severity",
+              "status",
+              "blocking",
+              "anchor_status",
+              "summary",
+              "artifact_version_id",
+              "round",
+              "answerable"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "round": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "unresolved_blockers": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "anchor_status": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "answerable": {
+                "type": "boolean"
+              },
+              "artifact_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "artifact_version_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "blocking": {
+                "type": "boolean"
+              },
+              "kind": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "round": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "severity": {
+                "type": "string"
+              },
+              "status": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "thread_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "thread_id",
+              "artifact_id",
+              "kind",
+              "severity",
+              "status",
+              "blocking",
+              "anchor_status",
+              "summary",
+              "artifact_version_id",
+              "round",
+              "answerable"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-get-blueprint-review"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "蓝图 · 查看蓝图阶段、等待原因、版本坐标与当前可用动作"
+    },
+    "description": "查看蓝图阶段、等待原因、版本坐标与当前可用动作。",
+    "endpoint": "/api/mcp/tools/get_blueprint_status/",
+    "inputSchema": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "operation_id"
+          ]
+        },
+        {
+          "required": [
+            "session_id"
+          ]
+        },
+        {
+          "required": [
+            "artifact_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "get_blueprint_status",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "required": [
+            "run_id",
+            "session_id",
+            "artifact_id",
+            "completeness",
+            "missing_fields",
+            "empty_reason",
+            "status",
+            "current_stage",
+            "poll_after_ms",
+            "next_actions",
+            "waiting_on",
+            "recovery_state",
+            "retryable",
+            "artifact_version_id",
+            "content_hash",
+            "progress",
+            "answerable_clarifications"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retry_scope": {
+              "const": "get_blueprint_status"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "answerable_clarifications": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "artifact_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "thread_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "thread_id",
+              "artifact_id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "artifact_version_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "completeness": {
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "type": "string"
+        },
+        "content_hash": {
+          "type": "string"
+        },
+        "current_stage": {
+          "type": "string"
+        },
+        "empty_reason": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "missing_fields": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "poll_after_ms": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "progress": {
+          "additionalProperties": true,
+          "properties": {
+            "completed": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "scope": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "total": {
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "scope",
+            "completed",
+            "total"
+          ],
+          "type": "object"
+        },
+        "recovery_state": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "status": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "waiting_on": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-get-blueprint-status"
   },
   {
     "annotations": {

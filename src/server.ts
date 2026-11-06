@@ -32,6 +32,8 @@ const provider = new AjvJsonSchemaValidator()
 const toolsByName = new Map(FRIDAY_TOOLS.map(tool => [tool.name, {
   ...tool,
   validate: provider.getValidator(tool.outputSchema),
+  diagnostic: tool.inputSchema.anyOf !== undefined && tool.name.startsWith('get_blueprint_'),
+  validateInput: provider.getValidator(tool.inputSchema),
 }]))
 
 const REQUEST_TIMEOUT_MS = 120_000
@@ -55,6 +57,9 @@ export async function callFridayTool(
   const tool = toolsByName.get(toolName)
   if (!tool)
     return clientError('mcp_unknown_tool', runContext.runId)
+
+  if (tool.diagnostic && !tool.validateInput(args).valid)
+    return httpError(400, { error_code: 'invalid_params', retryable: false }, runContext.runId)
 
   const config = configResolver()
   if (!config)
@@ -97,10 +102,13 @@ export async function callFridayTool(
     const id = envelope.run_id ?? resp.headers.get('X-Friday-Run-ID')
     if (typeof id === 'string' && uuidPattern.test(id) && !id.includes(config.accessToken))
       runContext.runId = id
-    return httpError(resp.status, envelope, runContext.runId)
+    const error = httpError(resp.status, envelope, runContext.runId)
+    if (tool.diagnostic && envelope.retry_scope === tool.name)
+      return { ...error, structuredContent: { ...error.structuredContent, retry_scope: tool.name } }
+    return error
   }
   const operationTool = tool.name === 'start_technical_blueprint' || tool.name === 'get_blueprint_operation'
-  if (!isObject(body) || (operationTool && 'error_code' in body) || !tool.validate(body).valid)
+  if (!isObject(body) || ((operationTool || tool.diagnostic) && 'error_code' in body) || !tool.validate(body).valid)
     return clientError('mcp_manifest_mismatch', runContext.runId, resp.status)
 
   // Reject accidental credential echoes even on a schema-valid HTTP 200.
