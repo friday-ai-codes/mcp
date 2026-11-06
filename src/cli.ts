@@ -14,11 +14,12 @@
 import process from 'node:process'
 import * as p from '@clack/prompts'
 import { CONFIG_FILE, normalizeBaseUrl, resolveConfig, writeConfig } from './config.js'
-import { detectAgents, registerAgent, registrationStatus, SUPPORTED_AGENTS } from './register.js'
+import { detectAgents, registerAgent, SUPPORTED_AGENTS } from './register.js'
+import { runDoctor } from './doctor.js'
 import type { AgentName } from './register.js'
 import { runStdioServer, SERVER_VERSION } from './server.js'
-import { interactiveInit, measureLatency, runSetup } from './setup.js'
-import { banner, formatMs, pc } from './ui.js'
+import { interactiveInit, runSetup } from './setup.js'
+import { banner, pc } from './ui.js'
 
 function parseInitArgs(argv: string[]): { baseUrl?: string, token?: string } {
   const out: { baseUrl?: string, token?: string } = {}
@@ -147,38 +148,6 @@ async function runRegister(argv: string[]): Promise<number> {
   return failed ? 1 : 0
 }
 
-async function runDoctor(): Promise<number> {
-  const statuses = registrationStatus()
-  if (statuses.length === 0) {
-    console.log('注册状态: 未探测到已安装的 agent')
-  }
-  else {
-    for (const s of statuses) {
-      const mark = s.registered ? pc.green('✓') : pc.red('✗')
-      console.log(`${mark} ${s.agent} ${s.registered ? '已注册' : '未注册'}（${s.location}）`)
-    }
-  }
-
-  const config = resolveConfig()
-  if (!config) {
-    console.error(`${pc.red('✗')} 未配置。运行: npx -y @friday-ai-codes/mcp setup（交互式中文向导）`)
-    return 1
-  }
-  console.log(`baseUrl: ${config.baseUrl}`)
-  console.log(`token: 已配置（${config.accessToken.length} 字符，不回显）`)
-
-  const latency = await measureLatency(config.baseUrl)
-  if (!latency.ok) {
-    console.error(`${pc.red('✗')} 连通性异常：${config.baseUrl}/health 不可达`)
-    return 1
-  }
-  console.log(
-    `${pc.green('✓')} 连通性正常 — 延迟 ${formatMs(latency.avg)}`
-    + pc.dim(`（${latency.samples.length} 次采样，最快 ${Math.round(latency.best)}ms）`),
-  )
-  return 0
-}
-
 function usage(): void {
   console.log(banner(SERVER_VERSION))
   console.log(`${pc.bold('用法')}
@@ -186,13 +155,18 @@ function usage(): void {
   npx -y @friday-ai-codes/mcp init       ${pc.dim('# 仅配置凭证（无参数进入交互式问答）')}
   npx -y @friday-ai-codes/mcp init --base-url <地址> --token <令牌>
   npx -y @friday-ai-codes/mcp register   ${pc.dim('# 注册进 Cursor / Claude Code / Codex')}
-  npx -y @friday-ai-codes/mcp doctor     ${pc.dim('# 诊断：配置 / 注册状态 / 连通性测速')}
+  npx -y @friday-ai-codes/mcp doctor     ${pc.dim('# 诊断：注册状态 / 服务端契约 / 请求耗时')}
   npx -y @friday-ai-codes/mcp serve      ${pc.dim('# 启动 stdio MCP server（agent 调用，勿手动运行）')}
 `)
 }
 
 async function main(): Promise<void> {
   const [, , command, ...rest] = process.argv
+
+  if (command === '--version' || command === '-v') {
+    console.log(SERVER_VERSION)
+    return
+  }
 
   if (command === 'setup') {
     console.log(banner(SERVER_VERSION))

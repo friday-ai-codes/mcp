@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import packageInfo from '../package.json' with { type: 'json' }
 import { createHash } from 'node:crypto'
 import { link, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -10,7 +11,7 @@ import { dirname, join } from 'node:path'
 import { MISSING_CONFIG_MESSAGE } from '../src/config.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { callFridayTool, createServer, RunContext } from '../src/server.js'
+import { callFridayTool, createServer, RunContext, SERVER_VERSION } from '../src/server.js'
 import { FRIDAY_TOOLS, TOOL_ANNOTATIONS } from '../src/tools.js'
 
 // Pin only the destination nonce so the test can stage a pre-existing file and
@@ -37,6 +38,8 @@ describe('fRIDAY_TOOLS', () => {
     try {
       await server.connect(serverTransport)
       await client.connect(clientTransport)
+      expect(SERVER_VERSION).toBe(packageInfo.version)
+      expect(client.getServerVersion()?.version).toBe(packageInfo.version)
       const { tools } = await client.listTools()
       expect(tools).toEqual(FRIDAY_TOOLS.map(tool => ({
         name: tool.name,

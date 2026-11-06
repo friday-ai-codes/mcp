@@ -160,7 +160,7 @@ export function registrationStatus(): Array<{ agent: AgentName, registered: bool
     let registered = false
     if (hasClaudeCli()) {
       try {
-        const output = execFileSync('claude', ['mcp', 'list'], { encoding: 'utf-8' })
+        const output = execFileSync('claude', ['mcp', 'list'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 })
         registered = /^friday[:\s]/m.test(output) || /\bfriday\b/.test(output)
       }
       catch {
