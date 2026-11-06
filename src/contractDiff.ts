@@ -11,7 +11,12 @@ interface Deployment {
 }
 
 // Only compile this trusted envelope. Remote schemas are data, including their $refs.
-const schema = { type: 'object', $ref: 'http://json-schema.org/draft-07/schema#' }
+const toolSchema = {
+  allOf: [
+    { type: 'object', required: ['type'], properties: { type: { const: 'object' } } },
+    { $ref: 'http://json-schema.org/draft-07/schema#' },
+  ],
+}
 const identity = { type: 'string', pattern: '^[a-zA-Z0-9][a-zA-Z0-9._+/-]{0,63}$' }
 const hints = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 const validate = new AjvJsonSchemaValidator().getValidator({
@@ -36,8 +41,8 @@ const validate = new AjvJsonSchemaValidator().getValidator({
               endpoint: { type: 'string', minLength: 1 },
               route_name: { type: 'string', minLength: 1 },
               description: { type: 'string' },
-              inputSchema: { allOf: [{ type: 'object' }, schema] },
-              outputSchema: { allOf: [{ type: 'object' }, schema] },
+              inputSchema: toolSchema,
+              outputSchema: toolSchema,
               annotations: {
                 type: 'object',
                 properties: {
