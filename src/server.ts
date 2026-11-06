@@ -99,7 +99,8 @@ export async function callFridayTool(
       runContext.runId = id
     return httpError(resp.status, envelope, runContext.runId)
   }
-  if (!isObject(body) || !tool.validate(body).valid)
+  const operationTool = tool.name === 'start_technical_blueprint' || tool.name === 'get_blueprint_operation'
+  if (!isObject(body) || (operationTool && 'error_code' in body) || !tool.validate(body).valid)
     return clientError('mcp_manifest_mismatch', runContext.runId, resp.status)
 
   // Reject accidental credential echoes even on a schema-valid HTTP 200.

@@ -18,8 +18,17 @@ export interface FridayToolDefinition {
   outputSchema: Record<string, unknown>
 }
 
+export interface BlueprintOperationReceipt {
+  operation_id: string
+  session_id: string
+  artifact_id: string
+  status: string
+  poll_after_ms: number
+  next_actions: string[]
+}
+
 export const CLIENT_CONTRACT_VERSION = "mcp-tools/v1"
-export const CLIENT_MANIFEST_HASH = "706cb8cca4d5ec0995dd98e8a623728e2e31b169388da84e4b536d6585fdaa81"
+export const CLIENT_MANIFEST_HASH = "300602761b08aca9e16ab3aa27fc42e77877af31b651579d7a4e62126d40592f"
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   {
     "annotations": {
@@ -155,10 +164,27 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
     "outputSchema": {
       "additionalProperties": true,
       "properties": {
+        "action_committed": {
+          "type": "boolean"
+        },
         "artifact_id": {
           "type": "string"
         },
         "current_status": {
+          "type": "string"
+        },
+        "drive_pending": {
+          "type": "boolean"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "format": "uuid",
           "type": "string"
         },
         "reflow": {
@@ -308,6 +334,9 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
     "outputSchema": {
       "additionalProperties": true,
       "properties": {
+        "action_committed": {
+          "type": "boolean"
+        },
         "artifact_id": {
           "type": "string"
         },
@@ -320,7 +349,21 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         "current_status": {
           "type": "string"
         },
+        "drive_pending": {
+          "type": "boolean"
+        },
         "markdown": {
+          "type": "string"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "format": "uuid",
           "type": "string"
         },
         "repository_task_count": {
@@ -1849,6 +1892,111 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "type": "object"
     },
     "route_name": "mcp-tool-generate-requirement-spec"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "蓝图 · 查询操作"
+    },
+    "description": "按受理回执的 operation_id 读取蓝图当前状态、下次轮询间隔和可用动作。",
+    "endpoint": "/api/mcp/tools/get_blueprint_operation/",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id"
+      ],
+      "type": "object"
+    },
+    "name": "get_blueprint_operation",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "required": [
+            "operation_id",
+            "session_id",
+            "artifact_id",
+            "status",
+            "poll_after_ms",
+            "next_actions"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "poll_after_ms": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "status": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-get-blueprint-operation"
   },
   {
     "annotations": {
@@ -4864,6 +5012,9 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
     "outputSchema": {
       "additionalProperties": true,
       "properties": {
+        "action_committed": {
+          "type": "boolean"
+        },
         "artifact_id": {
           "type": "string"
         },
@@ -4871,6 +5022,20 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
           "type": "string"
         },
         "current_status": {
+          "type": "string"
+        },
+        "drive_pending": {
+          "type": "boolean"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "format": "uuid",
           "type": "string"
         },
         "revision_round": {
@@ -5883,6 +6048,167 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "type": "object"
     },
     "route_name": "mcp-tool-start-repo-research"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "蓝图 · 发起技术蓝图"
+    },
+    "description": "提交项目需求，立即取得异步蓝图回执；断线后用原键和原参数重试。",
+    "endpoint": "/api/mcp/tools/start_technical_blueprint/",
+    "inputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "feature_segments": {
+          "default": [],
+          "items": {
+            "additionalProperties": true,
+            "default": [],
+            "properties": {
+              "intent": {
+                "default": "greenfield",
+                "enum": [
+                  "brownfield",
+                  "fix",
+                  "greenfield"
+                ],
+                "type": "string"
+              },
+              "layer": {
+                "default": "",
+                "maxLength": 200,
+                "type": "string"
+              },
+              "module": {
+                "default": "",
+                "maxLength": 200,
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "type": "object"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "idempotency_key": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "requirement_text": {
+          "maxLength": 200000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "maxLength": 200,
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_text",
+        "project_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "name": "start_technical_blueprint",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "required": [
+            "operation_id",
+            "session_id",
+            "artifact_id",
+            "status",
+            "poll_after_ms",
+            "next_actions"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "poll_after_ms": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "status": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-start-technical-blueprint"
   },
   {
     "annotations": {

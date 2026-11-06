@@ -43,7 +43,7 @@ describe('fRIDAY_TOOLS', () => {
       const { tools } = await client.listTools()
       // Assert domain effects independently of the generated catalog used by the server.
       const effects = new Map(tools.map(tool => [tool.name, tool.annotations]))
-      for (const name of ['get_technical_blueprint', 'read_blueprint_context', 'get_repo_research', 'route_blueprint_repos']) {
+      for (const name of ['get_blueprint_operation', 'get_technical_blueprint', 'read_blueprint_context', 'get_repo_research', 'route_blueprint_repos']) {
         expect(effects.get(name), name).toMatchObject({ readOnlyHint: true, idempotentHint: true })
       }
       for (const name of ['report_blueprint_context', 'answer_blueprint_clarification', 'confirm_feature_tech_plan',
@@ -71,10 +71,10 @@ describe('fRIDAY_TOOLS', () => {
     }
   })
 
-  it('定义了与服务端一致的 55 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(55)
+  it('定义了与服务端一致的 57 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(57)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(55)
+    expect(new Set(names).size).toBe(57)
     expect(names).toContain('route_repositories')
     expect(names).toContain('grep_repository')
     expect(names).toContain('execute_coding_plan')
@@ -129,6 +129,45 @@ describe('fRIDAY_TOOLS', () => {
 })
 
 describe('callFridayTool', () => {
+  it('round-trips blueprint receipts and preserves the stable idempotency conflict', async () => {
+    const operation_id = '1366baaa-2f1e-4bf9-bee3-1606c9ff8f88'
+    const receipt = {
+      operation_id, session_id: operation_id, artifact_id: operation_id, status: 'accepted',
+      poll_after_ms: 2000, next_actions: ['get_blueprint_operation'],
+    }
+    const input = { project_id: operation_id, idempotency_key: 'request-A', requirement_text: 'Design' }
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(jsonResponse(receipt))
+      .mockResolvedValueOnce(jsonResponse({ ...receipt, status: 'pending_review' }))
+      .mockResolvedValueOnce(jsonResponse({ error_code: 'idempotency_key_conflict', retryable: false }, 409)))
+    vi.stubEnv('FRIDAY_BASE_URL', CONFIG.baseUrl)
+    vi.stubEnv('FRIDAY_ACCESS_TOKEN', CONFIG.accessToken)
+    const server = createServer()
+    const client = new Client({ name: 'operation-test', version: '1' })
+    const [local, remote] = InMemoryTransport.createLinkedPair()
+    try {
+      await server.connect(remote)
+      await client.connect(local)
+      await client.listTools()
+      const accepted = await client.callTool({ name: 'start_technical_blueprint', arguments: input })
+      expect(accepted.structuredContent).toEqual(receipt)
+      const polled = await client.callTool({ name: 'get_blueprint_operation', arguments: { operation_id } })
+      expect(polled.structuredContent).toEqual({ ...receipt, status: 'pending_review' })
+      const conflict = await client.callTool({
+        name: 'start_technical_blueprint', arguments: { ...input, requirement_text: 'Changed' },
+      })
+      expect(conflict.isError).toBe(true)
+      expect(conflict.structuredContent).toMatchObject({
+        http_status: 409, error_code: 'idempotency_key_conflict', retryable: false,
+      })
+    } finally {
+      await client.close()
+      await server.close()
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
   // Tools present in Django while the stdio catalog still had 43 entries.
   it.each([
     'approve_technical_blueprint', 'detect_changes', 'get_process', 'get_session_capture',
