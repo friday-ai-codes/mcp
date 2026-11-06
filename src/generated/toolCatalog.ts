@@ -19,7 +19,7 @@ export interface FridayToolDefinition {
 }
 
 export const CLIENT_CONTRACT_VERSION = "mcp-tools/v1"
-export const CLIENT_MANIFEST_HASH = "08ff747d3de23295cae43cc160c756b804a1a8153e15e40dc1a3f1a94e91232f"
+export const CLIENT_MANIFEST_HASH = "706cb8cca4d5ec0995dd98e8a623728e2e31b169388da84e4b536d6585fdaa81"
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   {
     "annotations": {
@@ -191,9 +191,9 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   },
   {
     "annotations": {
-      "destructiveHint": false,
-      "idempotentHint": false,
-      "openWorldHint": true,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
       "readOnlyHint": false,
       "title": "环节 · 采纳写回项目关联仓库（需用户确认）"
     },
@@ -264,8 +264,8 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   },
   {
     "annotations": {
-      "destructiveHint": false,
-      "idempotentHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": false,
       "title": "蓝图 · 确认版本"
@@ -2004,9 +2004,9 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   {
     "annotations": {
       "destructiveHint": false,
-      "idempotentHint": true,
+      "idempotentHint": false,
       "openWorldHint": false,
-      "readOnlyHint": true,
+      "readOnlyHint": false,
       "title": "蓝图 · 读取已确认交接包"
     },
     "description": "【蓝图交接取件】按 technical_plan_id、artifact_id、artifact_version_id 与 content_hash 四个确认坐标，只读取得 Friday 已确认蓝图的 canonical_content、完整 Markdown 和结构化 repository_tasks。服务端逐项核对当前 confirmed 版本，任一坐标漂移立即拒绝；不创建版本、不改状态、不触发编码。完整响应由 MCP 原样落本机文件，只向模型返回文件路径与摘要。",
@@ -4809,7 +4809,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   },
   {
     "annotations": {
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false,

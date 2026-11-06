@@ -41,6 +41,21 @@ describe('fRIDAY_TOOLS', () => {
       expect(SERVER_VERSION).toBe(packageInfo.version)
       expect(client.getServerVersion()?.version).toBe(packageInfo.version)
       const { tools } = await client.listTools()
+      // Assert domain effects independently of the generated catalog used by the server.
+      const effects = new Map(tools.map(tool => [tool.name, tool.annotations]))
+      for (const name of ['get_technical_blueprint', 'read_blueprint_context', 'get_repo_research', 'route_blueprint_repos']) {
+        expect(effects.get(name), name).toMatchObject({ readOnlyHint: true, idempotentHint: true })
+      }
+      for (const name of ['report_blueprint_context', 'answer_blueprint_clarification', 'confirm_feature_tech_plan',
+        'get_confirmed_blueprint_handoff', 'execute_coding_plan', 'start_repo_research']) {
+        expect(effects.get(name), name).toMatchObject({ readOnlyHint: false, idempotentHint: false })
+      }
+      for (const name of ['approve_technical_blueprint', 'apply_repo_association']) {
+        expect(effects.get(name), name).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: true })
+      }
+      expect(effects.get('request_technical_blueprint_changes')).toMatchObject({
+        readOnlyHint: false, idempotentHint: false, destructiveHint: true,
+      })
       expect(tools).toEqual(FRIDAY_TOOLS.map(tool => ({
         name: tool.name,
         title: tool.annotations.title,
@@ -107,7 +122,7 @@ describe('fRIDAY_TOOLS', () => {
       expect(annotations, `missing annotations for ${tool.name}`).toBeDefined()
       expect(annotations!.title).toContain(' · ')
       expect(typeof annotations!.readOnlyHint).toBe('boolean')
-      expect(annotations!.destructiveHint).toBe(false)
+      expect(typeof annotations!.destructiveHint).toBe('boolean')
     }
     expect(Object.keys(TOOL_ANNOTATIONS).sort()).toEqual(FRIDAY_TOOLS.map(t => t.name).sort())
   })
