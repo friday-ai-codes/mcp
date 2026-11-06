@@ -3,10 +3,23 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { readFile, unlink } from 'node:fs/promises'
+import packageInfo from '../package.json' with { type: 'json' }
+import { createHash } from 'node:crypto'
+import { link, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { MISSING_CONFIG_MESSAGE } from '../src/config.js'
-import { callFridayTool, RunContext } from '../src/server.js'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { callFridayTool, createServer, RunContext, SERVER_VERSION } from '../src/server.js'
 import { FRIDAY_TOOLS, TOOL_ANNOTATIONS } from '../src/tools.js'
+
+// Pin only the destination nonce so the test can stage a pre-existing file and
+// observe its inode across a real filesystem rename.
+vi.mock('node:crypto', async (importOriginal) => ({
+  ...await importOriginal<typeof import('node:crypto')>(),
+  randomUUID: () => '00000000-0000-4000-8000-000000000001',
+}))
 
 const CONFIG = { baseUrl: 'https://friday.internal', accessToken: 'secret-pat' }
 
@@ -18,10 +31,73 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('fRIDAY_TOOLS', () => {
-  it('定义了与服务端一致的 55 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(55)
+  it('lists every generated contract through MCP discovery', async () => {
+    const server = createServer()
+    const client = new Client({ name: 'catalog-test', version: '1' })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    try {
+      await server.connect(serverTransport)
+      await client.connect(clientTransport)
+      expect(SERVER_VERSION).toBe(packageInfo.version)
+      expect(client.getServerVersion()?.version).toBe(packageInfo.version)
+      const { tools } = await client.listTools()
+      // Assert domain effects independently of the generated catalog used by the server.
+      const effects = new Map(tools.map(tool => [tool.name, tool.annotations]))
+      for (const name of ['get_blueprint_status', 'get_blueprint_review', 'get_blueprint_repositories', 'get_blueprint_merge_rounds', 'get_blueprint_events', 'get_blueprint_operation', 'get_technical_blueprint', 'read_blueprint_context', 'get_repo_research', 'route_blueprint_repos']) {
+        expect(effects.get(name), name).toMatchObject({ readOnlyHint: true, idempotentHint: true })
+      }
+      for (const name of ['report_blueprint_context', 'answer_blueprint_clarification', 'confirm_feature_tech_plan',
+        'get_confirmed_blueprint_handoff', 'execute_coding_plan', 'start_repo_research']) {
+        expect(effects.get(name), name).toMatchObject({ readOnlyHint: false, idempotentHint: false })
+      }
+      for (const name of ['approve_technical_blueprint', 'apply_repo_association']) {
+        expect(effects.get(name), name).toMatchObject({ readOnlyHint: false, idempotentHint: true, destructiveHint: true })
+      }
+      expect(effects.get('request_technical_blueprint_changes')).toMatchObject({
+        readOnlyHint: false, idempotentHint: false, destructiveHint: true,
+      })
+      expect(tools).toEqual(FRIDAY_TOOLS.map(tool => ({
+        name: tool.name,
+        title: tool.annotations.title,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        outputSchema: tool.outputSchema,
+        annotations: tool.annotations,
+      })))
+    }
+    finally {
+      await client.close()
+      await server.close()
+    }
+  })
+
+  it('returns a structured cursor error before the first upstream request', async () => {
+    const client = new Client({ name: 'diagnostic-client', version: '1' })
+    const server = createServer()
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    try {
+      await server.connect(serverTransport)
+      await client.connect(clientTransport)
+      await client.listTools()
+      const result = await client.callTool({
+        name: 'get_blueprint_events',
+        arguments: { session_id: 'a82dbbfa-b358-4ece-9eb4-10ec3df6fd46', limit: 101 },
+      })
+      expect(result.isError).toBe(true)
+      expect(result.structuredContent).toEqual({
+        error_code: 'invalid_params', http_status: 400, retryable: false, run_id: null,
+      })
+    }
+    finally {
+      await client.close()
+      await server.close()
+    }
+  })
+
+  it('定义了与服务端一致的 62 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(62)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(55)
+    expect(new Set(names).size).toBe(62)
     expect(names).toContain('route_repositories')
     expect(names).toContain('grep_repository')
     expect(names).toContain('execute_coding_plan')
@@ -69,13 +145,93 @@ describe('fRIDAY_TOOLS', () => {
       expect(annotations, `missing annotations for ${tool.name}`).toBeDefined()
       expect(annotations!.title).toContain(' · ')
       expect(typeof annotations!.readOnlyHint).toBe('boolean')
-      expect(annotations!.destructiveHint).toBe(false)
+      expect(typeof annotations!.destructiveHint).toBe('boolean')
     }
     expect(Object.keys(TOOL_ANNOTATIONS).sort()).toEqual(FRIDAY_TOOLS.map(t => t.name).sort())
   })
 })
 
 describe('callFridayTool', () => {
+  it('validates a diagnostic cursor and preserves the service-issued error coordinates', async () => {
+    const run_id = 'a82dbbfa-b358-4ece-9eb4-10ec3df6fd46'
+    const name = 'get_blueprint_events'
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      error_code: 'unavailable', retryable: true, run_id, retry_scope: name, detail: 'private',
+    }, 503))
+    const context = new RunContext()
+    const read = (args: Record<string, unknown>) => callFridayTool(name, args, context, fetchMock, () => CONFIG)
+    expect((await read({ session_id: run_id, limit: 101 })).structuredContent.error_code).toBe('invalid_params')
+    expect(fetchMock).not.toHaveBeenCalled()
+    const result = await read({ session_id: run_id, limit: 1, since_seq: 4 })
+    expect(result.structuredContent).toEqual({ error_code: 'unavailable', retryable: true,
+      http_status: 503, run_id, retry_scope: name })
+    expect(JSON.stringify(result)).not.toContain('private')
+    expect(context.runId).toBe(run_id)
+  })
+
+  it('round-trips blueprint receipts and preserves the stable idempotency conflict', async () => {
+    const operation_id = '1366baaa-2f1e-4bf9-bee3-1606c9ff8f88'
+    const receipt = {
+      operation_id, session_id: operation_id, artifact_id: operation_id, status: 'accepted',
+      poll_after_ms: 2000, next_actions: ['get_blueprint_operation'],
+    }
+    const input = { project_id: operation_id, idempotency_key: 'request-A', requirement_text: 'Design' }
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(jsonResponse(receipt))
+      .mockResolvedValueOnce(jsonResponse({ ...receipt, status: 'pending_review' }))
+      .mockResolvedValueOnce(jsonResponse({ error_code: 'idempotency_key_conflict', retryable: false }, 409)))
+    vi.stubEnv('FRIDAY_BASE_URL', CONFIG.baseUrl)
+    vi.stubEnv('FRIDAY_ACCESS_TOKEN', CONFIG.accessToken)
+    const server = createServer()
+    const client = new Client({ name: 'operation-test', version: '1' })
+    const [local, remote] = InMemoryTransport.createLinkedPair()
+    try {
+      await server.connect(remote)
+      await client.connect(local)
+      await client.listTools()
+      const accepted = await client.callTool({ name: 'start_technical_blueprint', arguments: input })
+      expect(accepted.structuredContent).toEqual(receipt)
+      const polled = await client.callTool({ name: 'get_blueprint_operation', arguments: { operation_id } })
+      expect(polled.structuredContent).toEqual({ ...receipt, status: 'pending_review' })
+      const conflict = await client.callTool({
+        name: 'start_technical_blueprint', arguments: { ...input, requirement_text: 'Changed' },
+      })
+      expect(conflict.isError).toBe(true)
+      expect(conflict.structuredContent).toMatchObject({
+        http_status: 409, error_code: 'idempotency_key_conflict', retryable: false,
+      })
+    } finally {
+      await client.close()
+      await server.close()
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  // Tools present in Django while the stdio catalog still had 43 entries.
+  it.each([
+    'approve_technical_blueprint', 'detect_changes', 'get_process', 'get_session_capture',
+    'graph_query', 'impact_analysis', 'list_processes', 'rename_preview',
+    'report_session_knowledge', 'request_technical_blueprint_changes',
+    'search_session_knowledge', 'trace_call_path',
+  ])('dispatches %s to its established HTTP endpoint', async (name) => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error_code: 'invalid_params' }, 400))
+    const args = { probe: name }
+    const result = await callFridayTool(name, args, new RunContext(), fetchMock, () => CONFIG)
+    expect(result.structuredContent.error_code).toBe('invalid_params')
+    expect(fetchMock).toHaveBeenCalledWith(`${CONFIG.baseUrl}/api/mcp/tools/${name}/`, expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify(args),
+    }))
+  })
+
+  it.each(['await_blueprint_context', '../private', '__proto__'])('拒绝未注册工具 %s', async (name) => {
+    const fetchMock = vi.fn()
+    const result = await callFridayTool(name, {}, new RunContext(), fetchMock, () => CONFIG)
+    expect(result.isError).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('缺配置时返回 isError 引导文案，不发请求', async () => {
     const fetchMock = vi.fn()
     const result = await callFridayTool('route_repositories', {}, new RunContext(), fetchMock, () => null)
@@ -85,7 +241,8 @@ describe('callFridayTool', () => {
   })
 
   it('正常调用：POST 到正确 URL、带 Bearer 头，返回 JSON 文本', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ total: 1, run_id: 'run-1' }))
+    const body = { query: 'payment', ranked_repos: [], router_version: '1', total: 0, auto_selected: false, run_id: 'run-1' }
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(body))
     const runContext = new RunContext()
     const result = await callFridayTool(
       'route_repositories',
@@ -100,11 +257,13 @@ describe('callFridayTool', () => {
     expect(url).toBe('https://friday.internal/api/mcp/tools/route_repositories/')
     expect(init.headers.Authorization).toBe('Bearer secret-pat')
     expect(init.body).toBe(JSON.stringify({ query: 'payment' }))
-    expect(JSON.parse(result.content[0]!.text)).toEqual({ total: 1, run_id: 'run-1' })
+    expect(result.structuredContent).toEqual(body)
+    expect(JSON.parse(result.content[0]!.text)).toEqual(body)
   })
 
   it('首次响应的 run_id 被记住并在后续请求带 X-Friday-Run-ID', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ run_id: 'run-abc' }))
+    const body = { query: 'a', ranked_repos: [], router_version: '1', total: 0, auto_selected: false, run_id: 'run-abc' }
+    const fetchMock = vi.fn().mockImplementation(() => jsonResponse(body))
     const runContext = new RunContext()
 
     await callFridayTool('route_repositories', { query: 'a' }, runContext, fetchMock, () => CONFIG)
@@ -126,31 +285,64 @@ describe('callFridayTool', () => {
       current_status: 'confirmed',
       markdown: marker.repeat(1000),
       repository_tasks: [{ repository_name: 'frontend/app' }],
+      canonical_content: { delivery_contract_version: 1, appendix: marker },
+      delivery_readiness: { ready: true, status: 'ready', contractTaskMatrix: [marker], blockers: [marker] },
       repository_task_count: 1,
       run_id: 'run-handoff',
     }
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(body))
+    const bytes = Buffer.from('\ufeff' + JSON.stringify(body, null, 2) + '\n')
+    const fetchMock = vi.fn().mockResolvedValue(new Response(bytes))
+    const directory = await mkdtemp(join(tmpdir(), 'friday-handoff-test-'))
+    vi.stubEnv('TMPDIR', directory)
+    try {
+      const handoffs = join(directory, 'friday-mcp-handoffs')
+      await mkdir(handoffs, { mode: 0o700 })
+      const target = join(handoffs, `blueprint-handoff-${body.artifact_id}-${body.artifact_version_id}-00000000-0000-4000-8000-000000000001.json`)
+      await writeFile(target, 'previous version', { mode: 0o600 })
+      const previous = join(directory, 'previous')
+      await link(target, previous)
 
-    const result = await callFridayTool(
-      'get_confirmed_blueprint_handoff',
-      { technical_plan_id: body.technical_plan_id, artifact_id: body.artifact_id, artifact_version_id: body.artifact_version_id, content_hash: body.content_hash },
-      new RunContext(),
-      fetchMock,
-      () => CONFIG,
-    )
+      const result = await callFridayTool(
+        'get_confirmed_blueprint_handoff',
+        { technical_plan_id: body.technical_plan_id, artifact_id: body.artifact_id, artifact_version_id: body.artifact_version_id, content_hash: body.content_hash },
+        new RunContext(),
+        fetchMock,
+        () => CONFIG,
+      )
 
-    expect(result.isError).toBeUndefined()
-    expect(result.content[0]!.text).not.toContain(marker)
-    const summary = JSON.parse(result.content[0]!.text)
-    expect(summary.repository_task_count).toBe(1)
-    expect(summary.markdown_chars).toBe(body.markdown.length)
-    expect(await readFile(summary.handoff_file, 'utf8')).toBe(JSON.stringify(body))
-    await unlink(summary.handoff_file)
+      expect(result.isError).toBeUndefined()
+      expect(result.content[0]!.text).not.toContain(marker)
+      const summary = JSON.parse(result.content[0]!.text)
+      expect(summary.repository_task_count).toBe(1)
+      expect(summary.markdown_chars).toBe(body.markdown.length)
+      expect(result.structuredContent).toEqual(summary)
+      expect(summary.run_id).toBe(body.run_id)
+      expect(summary.delivery_readiness).toEqual({ ready: true, status: 'ready' })
+      expect(summary.handoff_file_sha256).toBe(createHash('sha256').update(bytes).digest('hex'))
+      expect(summary.handoff_file).toBe(target)
+      expect(await readFile(summary.handoff_file)).toEqual(bytes)
+      expect(await readFile(previous, 'utf8')).toBe('previous version')
+      expect((await stat(dirname(summary.handoff_file))).mode & 0o777).toBe(0o700)
+      expect((await stat(summary.handoff_file)).mode & 0o777).toBe(0o600)
+      expect(await readdir(handoffs)).toHaveLength(1)
+
+      // A directory collision forces rename to fail after writing the temp file.
+      await rm(target)
+      await mkdir(target)
+      const failed = await callFridayTool('get_confirmed_blueprint_handoff', body, new RunContext(),
+        async () => new Response(bytes), () => CONFIG)
+      expect(failed.structuredContent.error_code).toBe('handoff_write_failed')
+      expect(JSON.stringify(failed)).not.toContain(directory)
+      expect(await readdir(handoffs)).toHaveLength(1)
+    } finally {
+      vi.unstubAllEnvs()
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('拒绝错误坐标、空任务和未就绪的新版交接包', async () => {
     const args = { technical_plan_id: 'plan', artifact_id: 'artifact', artifact_version_id: 'version', content_hash: 'a'.repeat(64) }
-    const base = { ...args, current_status: 'confirmed', version_no: 1, markdown: 'blueprint', repository_tasks: [{}], repository_task_count: 1 }
+    const base = { ...args, run_id: 'run-handoff', current_status: 'confirmed', version_no: 1, markdown: 'blueprint', repository_tasks: [{}], repository_task_count: 1 }
     for (const change of [{ artifact_id: 'other' }, { repository_tasks: [] }, { current_status: 'pending_review' }, { canonical_content: { delivery_contract_version: 1 }, delivery_readiness: { ready: false } }]) {
       const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ...base, ...change }))
       const result = await callFridayTool('get_confirmed_blueprint_handoff', args, new RunContext(), fetchMock, () => CONFIG)
@@ -179,6 +371,34 @@ describe('callFridayTool', () => {
     const result = await callFridayTool('get_repository', {}, new RunContext(), fetchMock, () => CONFIG)
     expect(result.isError).toBe(true)
     expect(result.content[0]!.text).toContain('不是 JSON')
+  })
+
+  it('preserves only machine fields from upstream errors across display languages', async () => {
+    const id = '12345678-1234-4000-8000-123456789abc'
+    for (const detail of ['错误', 'Erreur']) {
+      const context = new RunContext()
+      const body = { detail: detail + CONFIG.accessToken, error_code: 'repository_not_found', run_id: id, stack: 'private' }
+      const result = await callFridayTool('get_repository', {}, context, async () => jsonResponse(body, 404), () => CONFIG)
+      expect(result.structuredContent).toEqual({ error_code: 'repository_not_found', http_status: 404, retryable: false, run_id: id })
+      expect(context.runId).toBe(id)
+      expect(JSON.stringify(result)).not.toContain(CONFIG.accessToken)
+      expect(JSON.stringify(result)).not.toContain('private')
+    }
+  })
+
+  it.each([
+    [() => jsonResponse({ detail: CONFIG.accessToken, error_code: CONFIG.accessToken, run_id: CONFIG.accessToken }, 503), 'mcp_http_error'],
+    [() => new Response(CONFIG.accessToken, { status: 400 }), 'mcp_http_error'],
+    [() => new Response(CONFIG.accessToken), 'mcp_invalid_json'],
+    [() => jsonResponse({ repository: {}, run_id: CONFIG.accessToken }), 'mcp_manifest_mismatch'],
+    [() => jsonResponse({ repository: CONFIG.accessToken }), 'mcp_manifest_mismatch'],
+    [() => { throw new DOMException(CONFIG.accessToken, 'TimeoutError') }, 'mcp_timeout'],
+    [() => { throw new TypeError(CONFIG.accessToken) }, 'mcp_network_error'],
+  ] as const)('sanitizes response and transport failures', async (respond, code) => {
+    const result = await callFridayTool('get_repository', {}, new RunContext(), async () => respond(), () => CONFIG)
+    expect(result.isError).toBe(true)
+    expect(result.structuredContent.error_code).toBe(code)
+    expect(JSON.stringify(result)).not.toContain(CONFIG.accessToken)
   })
 
   it('网络错误返回 isError 文本而不是抛异常', async () => {

@@ -1,41 +1,62 @@
 name: Publish to npm
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  publish:
-    runs-on: ubuntu-latest
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          repository: friday-ai-codes/friday-ai
+          ref: main
+          submodules: recursive
+      - uses: actions/setup-python@v6
+        id: python
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: mcp/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: mcp/pnpm-lock.yaml
+      - name: Install ripgrep for repository contract tests
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Verify the accepted parent gitlink, contract and packed candidate
+        env:
+          UV_PYTHON: ${{ steps.python.outputs.python-path }}
+          MCP_RELEASE_TARBALL: ${{ runner.temp }}/candidate.tgz
+        run: node scripts/verify-mcp-release.mjs "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcp-candidate
+          path: ${{ runner.temp }}/candidate.tgz
+          if-no-files-found: error
 
-      - uses: actions/setup-node@v4
+  publish:
+    needs: preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mcp-candidate
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-
-      - name: Upgrade npm
-        run: npm install -g npm@latest
-
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Build
-        run: npm run build
-
-      - name: Publish if version bumped
-        run: |
-          set -e
-          NAME=$(node -p "require('./package.json').name")
-          VERSION=$(node -p "require('./package.json').version")
-          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
-            echo "::notice::$NAME@$VERSION already on npm — skipping publish."
-            exit 0
-          fi
-          npm publish --access public
+          package-manager-cache: false
+      # npm trusted publishing requires npm >= 11.5.1.
+      - run: npm install --global npm@11.5.2
+      - run: npm publish ./candidate.tgz --access public --ignore-scripts

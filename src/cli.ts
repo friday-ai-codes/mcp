@@ -11,14 +11,16 @@
  * server 模式下绝不向 stdout 打印任何非协议内容。
  */
 
+import { PINNED_PACKAGE } from './packageIdentity.js'
 import process from 'node:process'
 import * as p from '@clack/prompts'
 import { CONFIG_FILE, normalizeBaseUrl, resolveConfig, writeConfig } from './config.js'
-import { detectAgents, registerAgent, registrationStatus, SUPPORTED_AGENTS } from './register.js'
+import { detectAgents, registerAgent, SUPPORTED_AGENTS } from './register.js'
+import { runDoctor } from './doctor.js'
 import type { AgentName } from './register.js'
 import { runStdioServer, SERVER_VERSION } from './server.js'
-import { interactiveInit, measureLatency, runSetup } from './setup.js'
-import { banner, formatMs, pc } from './ui.js'
+import { interactiveInit, runSetup } from './setup.js'
+import { banner, pc } from './ui.js'
 
 function parseInitArgs(argv: string[]): { baseUrl?: string, token?: string } {
   const out: { baseUrl?: string, token?: string } = {}
@@ -54,7 +56,7 @@ async function runInit(argv: string[]): Promise<number> {
       p.log.success(`连通性正常: ${config.baseUrl}/health`)
     else
       p.log.warn(`无法访问 ${config.baseUrl}/health —— 配置已保存，请确认地址可达（内网 / VPN / 端口）。`)
-    p.outro(`下一步：${pc.cyan('npx -y @friday-ai-codes/mcp register')}（或直接跑 setup 一条龙）`)
+    p.outro(`下一步：${pc.cyan(`npx -y ${PINNED_PACKAGE} register`)}（或直接跑 setup 一条龙）`)
     return healthy ? 0 : 1
   }
 
@@ -86,7 +88,7 @@ async function runInit(argv: string[]): Promise<number> {
   }
 
   console.log('下一步: 注册 MCP server 到你的 agent（自动探测 Cursor / Claude Code / Codex）:')
-  console.log('  npx -y @friday-ai-codes/mcp register')
+  console.log(`  npx -y ${PINNED_PACKAGE} register`)
   return 0
 }
 
@@ -142,57 +144,30 @@ async function runRegister(argv: string[]): Promise<number> {
   }
 
   if (!resolveConfig())
-    console.log('提示: 尚未配置凭证。运行: npx -y @friday-ai-codes/mcp setup（交互式）')
+    console.log(`提示: 尚未配置凭证。运行: npx -y ${PINNED_PACKAGE} setup（交互式）`)
   console.log('注册完成后需重启 agent 会话，friday 工具才会出现。')
   return failed ? 1 : 0
-}
-
-async function runDoctor(): Promise<number> {
-  const statuses = registrationStatus()
-  if (statuses.length === 0) {
-    console.log('注册状态: 未探测到已安装的 agent')
-  }
-  else {
-    for (const s of statuses) {
-      const mark = s.registered ? pc.green('✓') : pc.red('✗')
-      console.log(`${mark} ${s.agent} ${s.registered ? '已注册' : '未注册'}（${s.location}）`)
-    }
-  }
-
-  const config = resolveConfig()
-  if (!config) {
-    console.error(`${pc.red('✗')} 未配置。运行: npx -y @friday-ai-codes/mcp setup（交互式中文向导）`)
-    return 1
-  }
-  console.log(`baseUrl: ${config.baseUrl}`)
-  console.log(`token: 已配置（${config.accessToken.length} 字符，不回显）`)
-
-  const latency = await measureLatency(config.baseUrl)
-  if (!latency.ok) {
-    console.error(`${pc.red('✗')} 连通性异常：${config.baseUrl}/health 不可达`)
-    return 1
-  }
-  console.log(
-    `${pc.green('✓')} 连通性正常 — 延迟 ${formatMs(latency.avg)}`
-    + pc.dim(`（${latency.samples.length} 次采样，最快 ${Math.round(latency.best)}ms）`),
-  )
-  return 0
 }
 
 function usage(): void {
   console.log(banner(SERVER_VERSION))
   console.log(`${pc.bold('用法')}
-  npx -y @friday-ai-codes/mcp setup      ${pc.dim('# 交互式中文向导：凭证 → 注册 → 测速 → 演示（推荐）')}
-  npx -y @friday-ai-codes/mcp init       ${pc.dim('# 仅配置凭证（无参数进入交互式问答）')}
-  npx -y @friday-ai-codes/mcp init --base-url <地址> --token <令牌>
-  npx -y @friday-ai-codes/mcp register   ${pc.dim('# 注册进 Cursor / Claude Code / Codex')}
-  npx -y @friday-ai-codes/mcp doctor     ${pc.dim('# 诊断：配置 / 注册状态 / 连通性测速')}
-  npx -y @friday-ai-codes/mcp serve      ${pc.dim('# 启动 stdio MCP server（agent 调用，勿手动运行）')}
+  npx -y ${PINNED_PACKAGE} setup      ${pc.dim('# 交互式中文向导：凭证 → 注册 → 测速 → 演示（推荐）')}
+  npx -y ${PINNED_PACKAGE} init       ${pc.dim('# 仅配置凭证（无参数进入交互式问答）')}
+  npx -y ${PINNED_PACKAGE} init --base-url <地址> --token <令牌>
+  npx -y ${PINNED_PACKAGE} register   ${pc.dim('# 注册进 Cursor / Claude Code / Codex')}
+  npx -y ${PINNED_PACKAGE} doctor     ${pc.dim('# 诊断：注册状态 / 服务端契约 / 请求耗时')}
+  npx -y ${PINNED_PACKAGE} serve      ${pc.dim('# 启动 stdio MCP server（agent 调用，勿手动运行）')}
 `)
 }
 
 async function main(): Promise<void> {
   const [, , command, ...rest] = process.argv
+
+  if (command === '--version' || command === '-v') {
+    console.log(SERVER_VERSION)
+    return
+  }
 
   if (command === 'setup') {
     console.log(banner(SERVER_VERSION))
