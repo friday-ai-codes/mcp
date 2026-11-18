@@ -66,9 +66,9 @@ npx @friday-ai-codes/skills
 
 ## 蓝图轮询节流
 
-服务端对蓝图轮询入口按用户限流，超限时返回 HTTP 429 `throttled`。适配器把重试时长原样放进结构化结果的 `retry_after_ms`（毫秒）：优先取响应体的 `retry_after_ms`，其次取 `Retry-After` 头 × 1000，只接受正整数并限制在 1–300000；缺失或无法解析时按 5000 毫秒退避。
+服务端对蓝图轮询入口按用户限流，超限时返回 HTTP 429 `throttled`。适配器把重试时长（毫秒）放进工具结果的 `_meta["friday/retry_after_ms"]`，文本内容中也带 `retry_after_ms=…`：优先取响应体的 `retry_after_ms`，其次取 `Retry-After` 头 × 1000，只接受正整数并限制在 1–300000；缺失或无法解析时按 5000 毫秒退避。`structuredContent` 保持与工具 outputSchema 错误分支一致（`error_code` / `http_status` / `retryable` / `run_id`），不新增字段，因此按 outputSchema 校验结果的 MCP SDK 客户端可以正常接收。
 
-`get_blueprint_status`、`get_blueprint_operation` 和其他蓝图诊断工具（`get_blueprint_events`、`get_blueprint_review` 等）在本地按 `(工具, session_id | operation_id | artifact_id)` 节流：下次允许发送的时间为上次发送时刻加上 `poll_after_ms` 与 `retry_after_ms` 中的较大者。提前到达的同键调用不会发往服务端，直接返回 `throttled`，其中 `http_status` 为 `null`，`retry_after_ms` 为剩余毫秒数。
+`get_blueprint_status`、`get_blueprint_operation` 和其他蓝图诊断工具（`get_blueprint_events`、`get_blueprint_review` 等）在本地按 `(工具, session_id | operation_id | artifact_id)` 节流：下次允许发送的时间为上次发送时刻加上 `poll_after_ms` 与 `retry_after_ms` 中的较大者。提前到达的同键调用不会发往服务端，直接返回 `throttled`，其中 `http_status` 为 `null`，`_meta["friday/retry_after_ms"]` 为剩余毫秒数。
 
 - `poll_after_ms` 为 0 表示已到终态，应停止轮询。
 - 同一会话上的改动性工具（审批、退回、重试、仓库确认等）调用成功后，该会话的节流状态立即清除，可以马上查询最新状态。

@@ -28,7 +28,7 @@ export interface BlueprintOperationReceipt {
 }
 
 export const CLIENT_CONTRACT_VERSION = "mcp-tools/v1"
-export const CLIENT_MANIFEST_HASH = "de959611d0fe0b98454205b9a7aee42457b748d072c324e2535a368654add6e8"
+export const CLIENT_MANIFEST_HASH = "3bc722ebde020a6ea11fa27f3a31ab1f1a2748983ab18f88a5468f1e0229cc63"
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   {
     "annotations": {
@@ -3241,7 +3241,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "readOnlyHint": true,
       "title": "蓝图 · 查询操作"
     },
-    "description": "按受理回执的 operation_id 读取蓝图当前状态、下次轮询间隔和可用动作。429 throttled 时按 retry_after_ms 退避，poll_after_ms 为 0 时停止轮询。",
+    "description": "按受理回执的 operation_id 读取蓝图当前状态、下次轮询间隔和可用动作。429 throttled 时按结果 _meta 中的 friday/retry_after_ms（毫秒）退避，poll_after_ms 为 0 时停止轮询。",
     "endpoint": "/api/mcp/tools/get_blueprint_operation/",
     "inputSchema": {
       "additionalProperties": false,
@@ -4684,7 +4684,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "readOnlyHint": true,
       "title": "蓝图 · 查看蓝图阶段、等待原因、版本坐标与当前可用动作"
     },
-    "description": "查看蓝图阶段、等待原因、版本坐标与当前可用动作。429 throttled 时按 retry_after_ms 退避，poll_after_ms 为 0 时停止轮询。",
+    "description": "查看蓝图阶段、等待原因、版本坐标与当前可用动作。429 throttled 时按结果 _meta 中的 friday/retry_after_ms（毫秒）退避，poll_after_ms 为 0 时停止轮询。",
     "endpoint": "/api/mcp/tools/get_blueprint_status/",
     "inputSchema": {
       "additionalProperties": false,

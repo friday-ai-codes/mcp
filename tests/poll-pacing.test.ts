@@ -5,9 +5,15 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_RETRY_AFTER_MS, httpError, MAX_RETRY_AFTER_MS, retryAfterMs } from '../src/errors.js'
+import { DEFAULT_RETRY_AFTER_MS, httpError, MAX_RETRY_AFTER_MS, RETRY_AFTER_META_KEY, retryAfterMeta, retryAfterMs } from '../src/errors.js'
 import { isPacedTool, pacingKey, PollPacer } from '../src/pollPacing.js'
 import { callFridayTool, RunContext } from '../src/server.js'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv'
+import { createServer } from '../src/server.js'
+import { localThrottled } from '../src/errors.js'
+import { FRIDAY_TOOLS } from '../src/tools.js'
 
 const CONFIG = { baseUrl: 'https://friday.internal', accessToken: 'secret-pat' }
 const SESSION = '0f8a4f53-0c6b-4b5e-9b0f-3b7d0c1f2a11'
@@ -74,15 +80,17 @@ describe('429 retry_after_ms preservation', () => {
     const result = await caller(new RunContext(), upstream.impl)('get_blueprint_status', { session_id: SESSION })
     expect(result.isError).toBe(true)
     expect(result.structuredContent).toEqual({
-      error_code: 'throttled', http_status: 429, retryable: true, run_id: null, retry_after_ms: 7000,
+      error_code: 'throttled', http_status: 429, retryable: true, run_id: null,
     })
+    expect((result as { _meta?: unknown })._meta).toEqual({ [RETRY_AFTER_META_KEY]: 7000 })
     expect(result.content[0]!.text).toContain('retry_after_ms=7000')
     expect(result.content[0]!.text).toContain('限流')
   })
 
   it('falls back to Retry-After × 1000 when the body omits retry_after_ms', () => {
     const error = httpError(429, { error_code: 'throttled' }, null, new Headers({ 'Retry-After': '3' }))
-    expect(error.structuredContent).toMatchObject({ error_code: 'throttled', http_status: 429, retry_after_ms: 3000 })
+    expect(error.structuredContent).toEqual({ error_code: 'throttled', http_status: 429, retryable: true, run_id: null })
+    expect(retryAfterMeta(error)).toBe(3000)
   })
 
   it('backs off 5000 ms when the duration is missing or malformed', () => {
@@ -105,11 +113,11 @@ describe('429 retry_after_ms preservation', () => {
   it('applies the conservative default when a 429 carries no duration at all', async () => {
     const upstream = countingFetch(() => throttled(), () => json(statusBody(1000)))
     const read = caller(new RunContext(), upstream.impl)
-    expect((await read('get_blueprint_status', { session_id: SESSION })).structuredContent)
-      .toMatchObject({ retry_after_ms: 5000 })
+    expect(retryAfterMeta(await read('get_blueprint_status', { session_id: SESSION }))).toBe(5000)
     await vi.advanceTimersByTimeAsync(4999)
     const early = await read('get_blueprint_status', { session_id: SESSION })
-    expect(early.structuredContent).toMatchObject({ error_code: 'throttled', http_status: null, retry_after_ms: 1 })
+    expect(early.structuredContent).toMatchObject({ error_code: 'throttled', http_status: null })
+    expect(retryAfterMeta(early)).toBe(1)
     expect(upstream.calls()).toBe(1)
     await vi.advanceTimersByTimeAsync(1)
     expect((await read('get_blueprint_status', { session_id: SESSION })).isError).toBeFalsy()
@@ -129,7 +137,7 @@ describe('local pacing before T elapses', () => {
       expect(local.structuredContent.error_code).toBe('throttled')
       expect(local.structuredContent.http_status).toBeNull()
       expect(local.structuredContent.retryable).toBe(true)
-      const remaining = (local.structuredContent as { retry_after_ms: number }).retry_after_ms
+      const remaining = retryAfterMeta(local)!
       expect(remaining).toBeGreaterThan(0)
       expect(remaining).toBeLessThanOrEqual(4000)
     }
@@ -154,8 +162,9 @@ describe('local pacing before T elapses', () => {
     await vi.advanceTimersByTimeAsync(1200)
     const local = await read('get_blueprint_status', { session_id: SESSION })
     expect(local.structuredContent).toEqual({
-      error_code: 'throttled', http_status: null, retryable: true, run_id: SESSION, retry_after_ms: 1800,
+      error_code: 'throttled', http_status: null, retryable: true, run_id: SESSION,
     })
+    expect(retryAfterMeta(local)).toBe(1800)
     expect(local.content[0]!.text).toContain('1800')
   })
 
@@ -261,7 +270,8 @@ describe('non-polling tools are unaffected', () => {
     const read = caller(new RunContext(), upstream.impl)
     for (let i = 0; i < 3; i++) {
       const result = await read('get_technical_blueprint', { artifact_id: ARTIFACT })
-      expect(result.structuredContent).toMatchObject({ error_code: 'throttled', http_status: 429, retry_after_ms: 9000 })
+      expect(result.structuredContent).toMatchObject({ error_code: 'throttled', http_status: 429 })
+      expect(retryAfterMeta(result)).toBe(9000)
     }
     expect(upstream.calls()).toBe(3)
   })
@@ -300,5 +310,83 @@ describe('pollPacer', () => {
       pacer.recordPoll('k', 0, bad, [])
     expect(pacer.remaining('k')).toBeNull()
     expect(pacer.isStopped('k')).toBe(false)
+  })
+})
+
+describe('throttled results stay valid against the generated outputSchema', () => {
+  const validator = new AjvJsonSchemaValidator()
+  const diagnostic = (tool: (typeof FRIDAY_TOOLS)[number]) =>
+    tool.inputSchema.anyOf !== undefined && tool.name.startsWith('get_blueprint_')
+  // Every tool whose outputSchema carries the closed error branch, plus every paced tool.
+  const closed = FRIDAY_TOOLS.filter(tool => Array.isArray(tool.outputSchema.oneOf)
+    || isPacedTool(tool.name, diagnostic(tool)))
+
+  it('covers every paced tool and start_technical_blueprint', () => {
+    const names = closed.map(tool => tool.name)
+    for (const name of ['get_blueprint_status', 'get_blueprint_operation', 'get_blueprint_events',
+      'get_blueprint_review', 'get_blueprint_repo_plan', 'get_blueprint_merge_artifacts', 'start_technical_blueprint'])
+      expect(names).toContain(name)
+    for (const tool of FRIDAY_TOOLS.filter(t => isPacedTool(t.name, diagnostic(t))))
+      expect(Array.isArray(tool.outputSchema.oneOf), tool.name).toBe(true)
+  })
+
+  it.each(closed.map(tool => [tool.name, tool] as const))('%s: 429 and local throttled pass SDK validation', (_name, tool) => {
+    const validate = validator.getValidator(tool.outputSchema)
+    const run = '1366baaa-2f1e-4bf9-bee3-1606c9ff8f88'
+    const results = [
+      httpError(429, { error_code: 'throttled', retryable: true, retry_after_ms: 4000 }, null),
+      httpError(429, { error_code: 'throttled' }, run, new Headers({ 'Retry-After': '2' })),
+      httpError(429, {}, null),
+      localThrottled(1234.5, null),
+      localThrottled(10, run),
+    ]
+    for (const result of results) {
+      const verdict = validate(result.structuredContent)
+      expect(verdict.valid, `${tool.name}: ${verdict.errorMessage}`).toBe(true)
+      expect(Object.keys(result.structuredContent).sort()).toEqual(['error_code', 'http_status', 'retryable', 'run_id'])
+      const wait = retryAfterMeta(result)
+      expect(Number.isSafeInteger(wait) && wait! > 0).toBe(true)
+    }
+    if (diagnostic(tool)) {
+      const scoped = { ...results[0]!.structuredContent, retry_scope: tool.name }
+      expect(validate(scoped).valid).toBe(true)
+    }
+  })
+
+  it('a real SDK Client receives the 429 and the local refusal without schema errors', async () => {
+    vi.useRealTimers()
+    const fetchMock = vi.fn().mockImplementation(async () => json({ error_code: 'throttled', retryable: true, retry_after_ms: 4000 }, 429))
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubEnv('FRIDAY_BASE_URL', CONFIG.baseUrl)
+    vi.stubEnv('FRIDAY_ACCESS_TOKEN', CONFIG.accessToken)
+    const server = createServer()
+    const client = new Client({ name: 'pacing-client', version: '1' })
+    const [local, remote] = InMemoryTransport.createLinkedPair()
+    try {
+      await server.connect(remote)
+      await client.connect(local)
+      await client.listTools()
+      for (const [name, args] of [
+        ['get_blueprint_status', { session_id: SESSION }],
+        ['get_blueprint_operation', { operation_id: OPERATION }],
+        ['get_blueprint_events', { session_id: SESSION, limit: 5 }],
+      ] as const) {
+        const limited = await client.callTool({ name, arguments: args })
+        expect(limited.isError).toBe(true)
+        expect(limited.structuredContent).toMatchObject({ error_code: 'throttled', http_status: 429 })
+        expect(limited._meta).toEqual({ [RETRY_AFTER_META_KEY]: 4000 })
+        const refused = await client.callTool({ name, arguments: args })
+        expect(refused.isError).toBe(true)
+        expect(refused.structuredContent).toMatchObject({ error_code: 'throttled', http_status: null })
+        expect(retryAfterMeta(refused)).toBeGreaterThan(0)
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    }
+    finally {
+      await client.close()
+      await server.close()
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
   })
 })

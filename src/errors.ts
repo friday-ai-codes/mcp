@@ -25,7 +25,7 @@ export const serverErrorHints: Record<string, string> = {
   blueprint_handoff_empty: '已确认蓝图没有可交接的仓库任务。',
   blueprint_not_confirmed: '技术蓝图尚未确认，不能交接；请先完成终审确认。',
   blueprint_delivery_not_ready: '蓝图业务交付合同未就绪，请先修复评审发现。',
-  throttled: '轮询过于频繁，已被限流；请至少等待 retry_after_ms 毫秒后再查询，期间不要重发；poll_after_ms 为 0 时停止轮询。',
+  throttled: '轮询过于频繁，已被限流；请至少等待结果 _meta 中 friday/retry_after_ms 给出的毫秒数后再查询，期间不要重发；poll_after_ms 为 0 时停止轮询。',
 }
 
 // Throttle backoff (verify-blueprint-recovery-and-release, SEC-06). The service sends
@@ -33,6 +33,22 @@ export const serverErrorHints: Record<string, string> = {
 // malformed falls back to a bounded conservative default instead of an immediate retry.
 export const DEFAULT_RETRY_AFTER_MS = 5000
 export const MAX_RETRY_AFTER_MS = 300_000
+/**
+ * The backoff travels in CallToolResult._meta, never in structuredContent: SDK clients validate
+ * structuredContent against the tool's closed error branch even for isError results.
+ */
+export const RETRY_AFTER_META_KEY = 'friday/retry_after_ms'
+
+function withRetryAfter<T extends object>(result: T, wait: number) {
+  return { ...result, _meta: { [RETRY_AFTER_META_KEY]: wait } }
+}
+
+/** Machine-readable backoff of a throttled result, or null when absent. */
+export function retryAfterMeta(result: object): number | null {
+  const meta = (result as { _meta?: Record<string, unknown> })._meta
+  const value = meta?.[RETRY_AFTER_META_KEY]
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
+}
 
 function positiveInteger(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
@@ -111,7 +127,7 @@ export function httpError(
   const wait = retryAfterMs(body, headers)
   const throttleHint = code === 'throttled' ? hint : serverErrorHints.throttled
   const result = failure(code, `Friday 工具调用失败（HTTP 429，${code}）。${throttleHint}（retry_after_ms=${wait}）`, status, retryable, runId)
-  return { ...result, structuredContent: { ...result.structuredContent, retry_after_ms: wait } }
+  return withRetryAfter(result, wait)
 }
 
 /** Local pacing refusal: nothing was sent, so there is no HTTP status. */
@@ -119,10 +135,10 @@ export function localThrottled(remainingMs: number, runId: string | null) {
   const wait = Math.max(Math.ceil(remainingMs), 1)
   const result = failure(
     'throttled',
-    `未发送请求：距服务端允许的下次查询还有 ${wait} 毫秒。${serverErrorHints.throttled}`,
+    `未发送请求：距服务端允许的下次查询还有 ${wait} 毫秒。${serverErrorHints.throttled}（retry_after_ms=${wait}）`,
     null,
     true,
     runId,
   )
-  return { ...result, structuredContent: { ...result.structuredContent, retry_after_ms: wait } }
+  return withRetryAfter(result, wait)
 }

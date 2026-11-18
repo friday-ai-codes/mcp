@@ -797,6 +797,7 @@ describe('confirmed handoff file and cleanup', () => {
 })
 
 describe('blueprint poll throttling (SEC-06)', () => {
+  const resultMeta = (result: object) => (result as { _meta?: unknown })._meta
   const OPERATION = '1366baaa-2f1e-4bf9-bee3-1606c9ff8f88'
   const receipt = (poll_after_ms: number) => ({
     operation_id: OPERATION, session_id: OPERATION, artifact_id: OPERATION, status: 'researching',
@@ -815,11 +816,14 @@ describe('blueprint poll throttling (SEC-06)', () => {
       const read = () => callFridayTool('get_blueprint_operation', { operation_id: OPERATION }, context, fetchImpl, () => CONFIG)
       const limited = await read()
       expect(limited.structuredContent).toEqual({
-        error_code: 'throttled', http_status: 429, retryable: true, run_id: null, retry_after_ms: 2000,
+        error_code: 'throttled', http_status: 429, retryable: true, run_id: null,
       })
+      expect(resultMeta(limited)).toEqual({ 'friday/retry_after_ms': 2000 })
       expect(JSON.stringify(limited)).not.toContain(CONFIG.accessToken)
       await vi.advanceTimersByTimeAsync(1999)
-      expect((await read()).structuredContent).toMatchObject({ error_code: 'throttled', http_status: null, retry_after_ms: 1 })
+      const local = await read()
+      expect(local.structuredContent).toEqual({ error_code: 'throttled', http_status: null, retryable: true, run_id: null })
+      expect(resultMeta(local)).toEqual({ 'friday/retry_after_ms': 1 })
       expect(fetchImpl).toHaveBeenCalledTimes(1)
       await vi.advanceTimersByTimeAsync(1)
       expect((await read()).structuredContent).toEqual(receipt(1000))
@@ -857,7 +861,8 @@ describe('blueprint poll throttling (SEC-06)', () => {
     const context = new RunContext()
     for (let i = 0; i < 2; i++) {
       const result = await callFridayTool('search_rag_chunks', { query: 'x' }, context, fetchImpl, () => CONFIG)
-      expect(result.structuredContent).toMatchObject({ error_code: 'throttled', http_status: 429, retry_after_ms: 1500 })
+      expect(result.structuredContent).toMatchObject({ error_code: 'throttled', http_status: 429 })
+      expect(resultMeta(result)).toEqual({ 'friday/retry_after_ms': 1500 })
     }
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })

@@ -8,7 +8,8 @@
  * 聚合为同一条轨迹。
  *
  * 轮询节流：蓝图轮询工具按服务端 poll_after_ms 与 429 retry_after_ms 在本地节流
- * （见 pollPacing.ts），从不自动重发。
+ * （见 pollPacing.ts），从不自动重发。重试时长放在结果 _meta['friday/retry_after_ms']，
+ * structuredContent 保持与 outputSchema 错误分支一致。
  *
  * 容错：缺配置 / 401 / 403 / 非 200 / 网络错误一律返回 isError 文本，
  * 绝不抛异常崩掉 stdio 进程；PAT 绝不进入任何返回文本或日志。
