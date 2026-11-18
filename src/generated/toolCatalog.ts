@@ -28,7 +28,7 @@ export interface BlueprintOperationReceipt {
 }
 
 export const CLIENT_CONTRACT_VERSION = "mcp-tools/v1"
-export const CLIENT_MANIFEST_HASH = "ea155275d1f250e627f64a5afed25865cd5dcab80a7ea5a4eb5f345b2ed016d3"
+export const CLIENT_MANIFEST_HASH = "bc69e15037d9c81ac52af9a427f6af7a8ed427f3c7c147272309a1f8ec0de37a"
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   {
     "annotations": {
@@ -2557,6 +2557,348 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true,
+      "title": "蓝图 · 读取不可变 merge 产物与重试坐标"
+    },
+    "description": "【定向重试 · 读取 merge 产物】按轮返回不可变的融合产物：每轮 round / attempt、validation 与原因、reconcile 摘要（三桶计数与标量定位，不含取值）、coverage 与下限、gap、基线与产出版本坐标、artifact 六段计数，以及 resumable 与 retry_coordinates。顶层 retry_coordinates 取最新一轮（expected_attempt / expected_artifact_version_id / expected_content_hash），是 retry_blueprint_merge 唯一的 CAS 坐标来源，原样回传。只读：不推进会话、不改轮次；尚无轮次时返回空集合与 empty_reason。坐标取 operation_id / session_id / artifact_id 之一，可附 project_id 与 round；越权与不存在同形 404。",
+    "endpoint": "/api/mcp/tools/get_blueprint_merge_artifacts/",
+    "inputSchema": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "operation_id"
+          ]
+        },
+        {
+          "required": [
+            "session_id"
+          ]
+        },
+        {
+          "required": [
+            "artifact_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "round": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "get_blueprint_merge_artifacts",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "properties": {
+            "run_id": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id",
+            "session_id",
+            "artifact_id",
+            "completeness",
+            "missing_fields",
+            "empty_reason",
+            "rounds",
+            "resumable",
+            "retry_reason",
+            "retry_coordinates"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retry_scope": {
+              "const": "get_blueprint_merge_artifacts"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "completeness": {
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "type": "string"
+        },
+        "empty_reason": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "missing_fields": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "resumable": {
+          "type": "boolean"
+        },
+        "retry_coordinates": {
+          "additionalProperties": true,
+          "properties": {
+            "expected_artifact_version_id": {
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "expected_attempt": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "expected_content_hash": {
+              "minLength": 1,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "expected_attempt",
+            "expected_artifact_version_id",
+            "expected_content_hash"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "retry_reason": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rounds": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "artifact": {
+                "additionalProperties": true,
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "artifact_version_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "attempt": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "back_repository_id": {
+                "type": "string"
+              },
+              "back_target": {
+                "type": "string"
+              },
+              "baseline_content_hash": {
+                "type": "string"
+              },
+              "baseline_version_id": {
+                "format": "uuid",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "content_hash": {
+                "type": "string"
+              },
+              "coverage": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "coverage_min": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "gap_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "gaps": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "reconcile": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "resumable": {
+                "type": "boolean"
+              },
+              "retry_coordinates": {
+                "additionalProperties": true,
+                "properties": {
+                  "expected_artifact_version_id": {
+                    "format": "uuid",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expected_attempt": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "expected_content_hash": {
+                    "minLength": 1,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "expected_attempt",
+                  "expected_artifact_version_id",
+                  "expected_content_hash"
+                ],
+                "type": "object"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "round": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "validation": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "round",
+              "attempt",
+              "validation",
+              "reason",
+              "coverage",
+              "coverage_min",
+              "gap_count",
+              "gaps",
+              "back_target",
+              "back_repository_id",
+              "baseline_version_id",
+              "baseline_content_hash",
+              "artifact_version_id",
+              "content_hash",
+              "retryable",
+              "reconcile",
+              "artifact",
+              "resumable",
+              "retry_coordinates"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-get-blueprint-merge-artifacts"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
       "title": "蓝图 · 按轮查看不可变的融合校验、覆盖与退回目标"
     },
     "description": "按轮查看不可变的融合校验、覆盖与退回目标。",
@@ -2905,6 +3247,386 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "type": "object"
     },
     "route_name": "mcp-tool-get-blueprint-operation"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "蓝图 · 读取单仓 repo plan 与重试坐标"
+    },
+    "description": "【定向重试 · 读取单仓 repo plan】按 repository_id 返回该仓 canonical repo plan 投影：delivery_status（failed / stale / degraded / empty 可重试）、attempt、产物 partial_plan_id 与 content_hash、实现项摘要（不含正文）、引用摘要、未决线程、retryable 与 retry_reason、可追溯的 history，以及 retry_coordinates（repository_id / expected_attempt / expected_content_hash，是 retry_blueprint_repo_plan 唯一的 CAS 坐标来源，原样回传）。无有效产物时 content_hash 为 null 并给出 empty_reason。只读：不推进会话、不派发任务、不改 attempt。坐标取 operation_id / session_id / artifact_id 之一，可附 project_id；会话不存在、非项目成员或仓不属于该会话一律同形 404。",
+    "endpoint": "/api/mcp/tools/get_blueprint_repo_plan/",
+    "inputSchema": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "operation_id"
+          ]
+        },
+        {
+          "required": [
+            "session_id"
+          ]
+        },
+        {
+          "required": [
+            "artifact_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "repository_id": {
+          "description": "目标仓库 UUID（须属于该蓝图会话）",
+          "format": "uuid",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository_id"
+      ],
+      "type": "object"
+    },
+    "name": "get_blueprint_repo_plan",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "properties": {
+            "run_id": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id",
+            "session_id",
+            "artifact_id",
+            "completeness",
+            "missing_fields",
+            "empty_reason",
+            "repository_id",
+            "role",
+            "delivery_status",
+            "attempt",
+            "plan_dispatch_count",
+            "partial_plan_id",
+            "content_hash",
+            "created_at",
+            "repo_plan",
+            "citation_count",
+            "citation_ids",
+            "context_entry",
+            "open_threads",
+            "retryable",
+            "retry_reason",
+            "retry_coordinates",
+            "history"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retry_scope": {
+              "const": "get_blueprint_repo_plan"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "attempt": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "citation_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "citation_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "completeness": {
+          "enum": [
+            "complete",
+            "partial"
+          ],
+          "type": "string"
+        },
+        "content_hash": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "context_entry": {
+          "additionalProperties": true,
+          "properties": {
+            "entry_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "seq": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "entry_id",
+            "seq"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "created_at": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "delivery_status": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "empty_reason": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "history": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "content_hash": {
+                "type": "string"
+              },
+              "created_at": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "invalidated_reason": {
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "partial_plan_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "stage": {
+                "enum": [
+                  "research",
+                  "repo_plan"
+                ],
+                "type": "string"
+              },
+              "valid": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "partial_plan_id",
+              "stage",
+              "content_hash",
+              "valid",
+              "invalidated_reason",
+              "created_at"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "missing_fields": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "open_threads": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "blocking": {
+                "type": "boolean"
+              },
+              "kind": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "severity": {
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "thread_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "thread_id",
+              "kind",
+              "status",
+              "blocking",
+              "severity"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "partial_plan_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plan_dispatch_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repo_plan": {
+          "additionalProperties": true,
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "repository_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "retry_coordinates": {
+          "additionalProperties": true,
+          "properties": {
+            "expected_attempt": {
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "expected_content_hash": {
+              "minLength": 1,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "repository_id": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "repository_id",
+            "expected_attempt",
+            "expected_content_hash"
+          ],
+          "type": "object"
+        },
+        "retry_reason": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "role": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-get-blueprint-repo-plan"
   },
   {
     "annotations": {
@@ -7185,6 +7907,282 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "type": "object"
     },
     "route_name": "mcp-tool-request-technical-blueprint-changes"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "蓝图 · 定向重试融合"
+    },
+    "description": "【定向重试 · merge】对可恢复的融合（停在 merge 等待澄清且最新一轮 validation=failed）只重跑融合阶段：不重跑任何 repo plan、不改任何仓的 attempt，历史轮次与产物全部保留。必须携带 get_blueprint_merge_artifacts 返回的 retry_coordinates 三项（expected_attempt / expected_artifact_version_id / expected_content_hash，键必填、后两项可为 null；缺任一项 400 invalid_params）。两类 409 可区分：blueprint_merge_stale 表示坐标已不是最新一轮或已被一次成功重试消费（重读 merge 产物后再决定）；blueprint_merge_not_retryable 表示无轮次或当前融合不可恢复（先读 retry_reason）。被拒绝时不建版本、不建轮次、不入队续驱。成功后返回 action_committed 与 drive_pending，融合在后台续驱、请求内不等待；成功后请改为轮询 get_blueprint_status，不要用原坐标重试。用户重试不重置自动重试预算。",
+    "endpoint": "/api/mcp/tools/retry_blueprint_merge/",
+    "inputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "expected_artifact_version_id": {
+          "description": "最新融合轮次的 retry_coordinates.expected_artifact_version_id（键必填，可为 null）",
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expected_attempt": {
+          "description": "读取投影时得到的 retry_coordinates.expected_attempt（原样回传）",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_content_hash": {
+          "description": "读取投影时得到的 retry_coordinates.expected_content_hash（键必填，无产物时为 null）",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "idempotency_key": {
+          "description": "幂等键（可选）：成功后原坐标即陈旧，同键重放也返回 409 陈旧码",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_attempt",
+        "expected_content_hash",
+        "expected_artifact_version_id"
+      ],
+      "type": "object"
+    },
+    "name": "retry_blueprint_merge",
+    "outputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "action_committed": {
+          "type": "boolean"
+        },
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "closed_thread_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "drive_pending": {
+          "type": "boolean"
+        },
+        "from_attempt": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "round": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "accepted"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "artifact_id",
+        "session_id",
+        "action_committed",
+        "drive_pending",
+        "next_actions",
+        "closed_thread_count",
+        "from_attempt",
+        "round"
+      ],
+      "type": "object"
+    },
+    "route_name": "mcp-tool-retry-blueprint-merge"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "蓝图 · 定向重试单仓 repo plan"
+    },
+    "description": "【定向重试 · 单仓 repo plan】只为一个 failed / stale / degraded / empty 的仓重跑分仓方案：目标仓 attempt 恰好 +1，旧产物只标记失效（invalidated_reason=targeted_retry）不删除，其他仓的任务、attempt、产物与版本不变。必须携带 get_blueprint_repo_plan 返回的 retry_coordinates（repository_id / expected_attempt / expected_content_hash，expected_content_hash 键必填、无产物时为 null；缺任一项 400 invalid_params）。两类 409 可区分：blueprint_repo_plan_stale 表示 attempt 或 content hash 已变化、或该坐标已被一次成功重试消费（重读单仓 repo plan 后再决定）；blueprint_repo_plan_not_retryable 表示仓仍在运行、已就绪或不在可重试阶段（先读 retry_reason）。被拒绝时不改 attempt、不写产物或版本、不入队续驱。成功后返回 action_committed 与 drive_pending，拟方案经续驱链在后台执行、请求内不等待；成功后请改为轮询 get_blueprint_status，不要用原坐标重试。用户重试与自动有界重试共用该仓的容器计数，不重置自动重试预算：再次产出非法结构会直接进入耗尽分支并重开阻塞澄清，可再次定向重试。",
+    "endpoint": "/api/mcp/tools/retry_blueprint_repo_plan/",
+    "inputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "expected_attempt": {
+          "description": "读取投影时得到的 retry_coordinates.expected_attempt（原样回传）",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_content_hash": {
+          "description": "读取投影时得到的 retry_coordinates.expected_content_hash（键必填，无产物时为 null）",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "idempotency_key": {
+          "description": "幂等键（可选）：成功后原坐标即陈旧，同键重放也返回 409 陈旧码",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "repository_id": {
+          "description": "目标仓库 UUID（retry_coordinates.repository_id）",
+          "format": "uuid",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_attempt",
+        "expected_content_hash",
+        "repository_id"
+      ],
+      "type": "object"
+    },
+    "name": "retry_blueprint_repo_plan",
+    "outputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "action_committed": {
+          "type": "boolean"
+        },
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "attempt": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "closed_thread_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "content_hash": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "drive_pending": {
+          "type": "boolean"
+        },
+        "invalidated_partial_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "repository_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "accepted"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "artifact_id",
+        "session_id",
+        "action_committed",
+        "drive_pending",
+        "next_actions",
+        "closed_thread_count",
+        "repository_id",
+        "attempt",
+        "content_hash",
+        "invalidated_partial_count"
+      ],
+      "type": "object"
+    },
+    "route_name": "mcp-tool-retry-blueprint-repo-plan"
   },
   {
     "annotations": {
