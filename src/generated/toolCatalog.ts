@@ -28,7 +28,7 @@ export interface BlueprintOperationReceipt {
 }
 
 export const CLIENT_CONTRACT_VERSION = "mcp-tools/v1"
-export const CLIENT_MANIFEST_HASH = "bc69e15037d9c81ac52af9a427f6af7a8ed427f3c7c147272309a1f8ec0de37a"
+export const CLIENT_MANIFEST_HASH = "adcb91437ca1b3e278a00ce89961868418d89e781862d650ccc047b908e92039"
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   {
     "annotations": {
@@ -535,7 +535,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "readOnlyHint": false,
       "title": "蓝图 · 确认版本"
     },
-    "description": "确认指定版本与哈希的技术蓝图；须由调用者明确授权审批。",
+    "description": "【终审 · 确认】须先把蓝图呈现给用户并取得明确授权再调。必须携带四个坐标：technical_plan_id、artifact_id、artifact_version_id 与 content_hash（取自 get_technical_blueprint；缺任一项 400 invalid_params）。服务端在确认事务内重新校验，409 各码含义：blueprint_handoff_mismatch 表示技术方案属于另一个蓝图；stale 表示版本或内容哈希已不是当前版本（重新读取后再确认）；blocked 表示仍有未决阻塞澄清、未处置的 BLOCKER finding 或业务交付合同未就绪（先作答澄清或用 resolve_blueprint_finding / dismiss_blueprint_finding 处置 finding）；conflict 表示蓝图状态已被并发改变；blueprint_handoff_empty 表示映射出的仓库任务为空。技术方案不存在或不可见同形 404。任何被拒绝的确认都不置 confirmed、不 pin 交接、不续驱。成功后蓝图变为 confirmed，交接钉在提交的 version 与 hash 上；完整交接包请随后用同一组四坐标调用 get_confirmed_blueprint_handoff 取件。",
     "endpoint": "/api/mcp/tools/approve_technical_blueprint/",
     "inputSchema": {
       "additionalProperties": true,
@@ -1835,6 +1835,96 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "type": "object"
     },
     "route_name": "mcp-tool-detect-changes"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "蓝图 · 判定评审发现为误报"
+    },
+    "description": "【finding 处置 · 误报】把一条 AI 评审 finding（thread_id 取自 get_blueprint_review 的 findings）判为误报（dismissed）。必须先把 finding 原文与处置理由呈现给用户并取得明确授权再调。reason 必填（trim 后非空，<=4000 字），与处置人一起写入线程留痕，不进系统日志；reason 缺失、空串或纯空白 400 invalid_params 且不落库；目标不是 AI 评审 finding（澄清线程、人工评论）400 invalid_params 且线程不变；线程不存在或非项目成员同形 404。线程已是 resolved / dismissed 终态时任一处置都返回 200 status=noop，不改状态、不覆盖首次处置的 actor 与 reason。可附 artifact_id / project_id 作范围约束。处置后该 finding 不再计入阻止 approve_technical_blueprint 的 blocker；成功后经续驱链继续，请改为轮询 get_blueprint_status。",
+    "endpoint": "/api/mcp/tools/dismiss_blueprint_finding/",
+    "inputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "artifact_id": {
+          "description": "蓝图 artifact UUID（可选，仅作范围约束）",
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "description": "项目 UUID（可选，仅作范围约束）",
+          "format": "uuid",
+          "type": "string"
+        },
+        "reason": {
+          "description": "处置理由（必填，trim 后非空，<=4000 字；写入线程留痕，不进系统日志）",
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "thread_id": {
+          "description": "AI 评审 finding 线程 UUID（取自 get_blueprint_review 的 findings）",
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread_id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "name": "dismiss_blueprint_finding",
+    "outputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "action_committed": {
+          "type": "boolean"
+        },
+        "current_status": {
+          "type": "string"
+        },
+        "drive_pending": {
+          "type": "boolean"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "dismissed",
+            "noop"
+          ],
+          "type": "string"
+        },
+        "thread_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "thread_id"
+      ],
+      "type": "object"
+    },
+    "route_name": "mcp-tool-dismiss-blueprint-finding"
   },
   {
     "annotations": {
@@ -4226,7 +4316,8 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
             "findings",
             "clarifications",
             "orphaned_threads",
-            "unresolved_blockers"
+            "unresolved_blockers",
+            "next_actions"
           ]
         },
         {
@@ -4416,6 +4507,13 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
           "type": "array"
         },
         "missing_fields": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "next_actions": {
           "items": {
             "minLength": 1,
             "type": "string"
@@ -7793,7 +7891,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "readOnlyHint": false,
       "title": "蓝图 · 请求返工"
     },
-    "description": "针对指定蓝图版本提出返工意见并保留审批留痕。",
+    "description": "【终审 · 请求返工】把蓝图打回 Friday canonical 返工流程（保留审批留痕，追加新版本并增加修订轮次，旧版本保留），返工经续驱链异步执行、请求内不等待。rework_scope 四种范围：review 只重新执行 AI 评审，不重跑 merge 或任何 repo plan；merge 重新融合，不重跑任何 repo plan（默认）；repos 只把 rework_repository_ids 指定且属于该会话的已终态仓置为 stale 并重跑这些仓，其他仓不变（repos 需要传 rework_repository_ids，未指定或都不属于该会话时不失效任何仓）；full 回到路由与逐仓调研重新开始。缺省、空值或未知范围一律按 merge 执行。响应 rework_scope 是归一后的实际范围，reworked_repository_count 是实际被失效的仓数。",
     "endpoint": "/api/mcp/tools/request_technical_blueprint_changes/",
     "inputSchema": {
       "additionalProperties": true,
@@ -7815,6 +7913,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         },
         "rework_repository_ids": {
           "default": [],
+          "description": "repos 范围要重跑的仓库 UUID（须属于该蓝图会话；其他范围忽略）",
           "items": {
             "format": "uuid",
             "type": "string"
@@ -7824,12 +7923,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         },
         "rework_scope": {
           "default": "merge",
-          "enum": [
-            "review",
-            "merge",
-            "repos",
-            "full"
-          ],
+          "description": "返工范围：review 只重跑 AI 评审；merge 重新融合、不重跑任何 repo plan（默认）；repos 只重跑 rework_repository_ids 指定的仓；full 回到路由与逐仓调研。缺省、空值或未知值按 merge 执行，响应返回归一后的实际范围",
           "type": "string"
         }
       },
@@ -7907,6 +8001,96 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "type": "object"
     },
     "route_name": "mcp-tool-request-technical-blueprint-changes"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "蓝图 · 标记评审发现已修复"
+    },
+    "description": "【finding 处置 · 已修复】把一条 AI 评审 finding（thread_id 取自 get_blueprint_review 的 findings）标记为已采纳并修复（resolved）。必须先把 finding 原文与处置理由呈现给用户并取得明确授权再调。reason 必填（trim 后非空，<=4000 字），与处置人一起写入线程留痕，不进系统日志；reason 缺失、空串或纯空白 400 invalid_params 且不落库；目标不是 AI 评审 finding（澄清线程、人工评论）400 invalid_params 且线程不变；线程不存在或非项目成员同形 404。线程已是 resolved / dismissed 终态时任一处置都返回 200 status=noop，不改状态、不覆盖首次处置的 actor 与 reason。可附 artifact_id / project_id 作范围约束。处置后该 finding 不再计入阻止 approve_technical_blueprint 的 blocker；成功后经续驱链继续，请改为轮询 get_blueprint_status。",
+    "endpoint": "/api/mcp/tools/resolve_blueprint_finding/",
+    "inputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "artifact_id": {
+          "description": "蓝图 artifact UUID（可选，仅作范围约束）",
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "description": "项目 UUID（可选，仅作范围约束）",
+          "format": "uuid",
+          "type": "string"
+        },
+        "reason": {
+          "description": "处置理由（必填，trim 后非空，<=4000 字；写入线程留痕，不进系统日志）",
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "thread_id": {
+          "description": "AI 评审 finding 线程 UUID（取自 get_blueprint_review 的 findings）",
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread_id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "name": "resolve_blueprint_finding",
+    "outputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "action_committed": {
+          "type": "boolean"
+        },
+        "current_status": {
+          "type": "string"
+        },
+        "drive_pending": {
+          "type": "boolean"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "resolved",
+            "noop"
+          ],
+          "type": "string"
+        },
+        "thread_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "thread_id"
+      ],
+      "type": "object"
+    },
+    "route_name": "mcp-tool-resolve-blueprint-finding"
   },
   {
     "annotations": {
