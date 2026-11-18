@@ -28,7 +28,7 @@ export interface BlueprintOperationReceipt {
 }
 
 export const CLIENT_CONTRACT_VERSION = "mcp-tools/v1"
-export const CLIENT_MANIFEST_HASH = "790caee1d923fe81f5c86238d3c8d15f9d63f08411fa3f87c9136aee4888a894"
+export const CLIENT_MANIFEST_HASH = "ea155275d1f250e627f64a5afed25865cd5dcab80a7ea5a4eb5f345b2ed016d3"
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   {
     "annotations": {
@@ -217,6 +217,245 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   },
   {
     "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "蓝图 · 仓库确认门逐仓动作"
+    },
+    "description": "【仓库确认门 · 逐仓动作】对开启中的仓库确认门执行一个单仓动作，action 取值：add_repo（新增仓，仅限蓝图所属项目范围，触发调研，可带 role / confidence）、remove_repo（移除仓，可带 reason）、reclassify_role（改 direct / indirect，改为 direct 需重新调研）、edit_responsibility（编辑职责，rerun=true 时才重新调研）、upgrade_research（升级深度调研）。成功后返回写后的新 gate_token、requires_research、ready_to_lock、action_committed、drive_pending 与 next_actions；调研在后台续驱，请求内不等待容器。⚠️ upgrade_research 失败（503 blueprint_gate_upgrade_unavailable，可重试）时升级标记已登记、gate_token 已前进：必须先调 get_blueprint_repository_gate 重读快照，再决定是否重试。非法输入不产生副作用：unknown_action / missing_repository_id / invalid_role / invalid_params 为 400，越界或不在快照内的仓为 404 not_found。",
+    "endpoint": "/api/mcp/tools/apply_blueprint_repository_gate_action/",
+    "inputSchema": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "operation_id"
+          ]
+        },
+        {
+          "required": [
+            "session_id"
+          ]
+        },
+        {
+          "required": [
+            "artifact_id"
+          ]
+        }
+      ],
+      "properties": {
+        "action": {
+          "description": "remove_repo 移除（可带 reason）/ add_repo 新增（可带 role、confidence）/ reclassify_role 改角色（必带 role）/ edit_responsibility 编辑职责（带 responsibility，可带 rerun）/ upgrade_research 升级深度调研",
+          "enum": [
+            "remove_repo",
+            "add_repo",
+            "reclassify_role",
+            "edit_responsibility",
+            "upgrade_research"
+          ],
+          "type": "string"
+        },
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "confidence": {
+          "description": "新增仓置信度（仅 add_repo，缺省 low）",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "type": "string"
+        },
+        "idempotency_key": {
+          "description": "幂等键（可选）：同键同参数重试重放原回执，同键不同参数返回 409",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "reason": {
+          "description": "移除原因（仅 remove_repo，<=500 字符）",
+          "maxLength": 500,
+          "type": "string"
+        },
+        "repository_id": {
+          "description": "目标仓库 UUID（五个动作都必需）",
+          "format": "uuid",
+          "type": "string"
+        },
+        "rerun": {
+          "description": "编辑职责后是否重跑该仓调研（仅 edit_responsibility）",
+          "type": "boolean"
+        },
+        "responsibility": {
+          "description": "仓库职责正文（仅 edit_responsibility，<=2000 字符）",
+          "maxLength": 2000,
+          "type": "string"
+        },
+        "role": {
+          "description": "仓库角色：add_repo 可选（缺省 direct）、reclassify_role 必需",
+          "enum": [
+            "direct",
+            "indirect"
+          ],
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "repository_id"
+      ],
+      "type": "object"
+    },
+    "name": "apply_blueprint_repository_gate_action",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "properties": {
+            "run_id": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id",
+            "action",
+            "repository_id",
+            "thread_id",
+            "requires_research",
+            "ready_to_lock",
+            "gate_token",
+            "action_committed",
+            "drive_pending",
+            "next_actions"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retry_scope": {
+              "const": "apply_blueprint_repository_gate_action"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "action": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "action_committed": {
+          "type": "boolean"
+        },
+        "already_running": {
+          "type": "boolean"
+        },
+        "drive_pending": {
+          "type": "boolean"
+        },
+        "gate_token": {
+          "additionalProperties": true,
+          "properties": {
+            "gate_snapshot_hash": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "gate_version": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "gate_version",
+            "gate_snapshot_hash"
+          ],
+          "type": "object"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "ready_to_lock": {
+          "type": "boolean"
+        },
+        "repository_id": {
+          "type": "string"
+        },
+        "requires_research": {
+          "type": "boolean"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "thread_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "upgraded": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-apply-blueprint-repository-gate-action"
+  },
+  {
+    "annotations": {
       "destructiveHint": true,
       "idempotentHint": true,
       "openWorldHint": false,
@@ -398,6 +637,222 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "type": "object"
     },
     "route_name": "mcp-tool-approve-technical-blueprint"
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "蓝图 · 确认锁定仓库集"
+    },
+    "description": "【仓库确认门 · 确认锁定】先把快照呈现给用户并取得明确确认，再携带读取快照时得到的 expected_gate_version 与 expected_gate_snapshot_hash 调用（缺任一项 400 invalid_params）。服务端在行锁事务内重验：token 陈旧 409 blueprint_gate_stale（重读快照后再确认）、存在阻塞澄清 409 blueprint_gate_pending_clarification、存在待调研仓 409 blueprint_gate_pending_research、快照为空 400 empty_snapshot、内容校验未过 409 blueprint_gate_content_invalid；被拒绝时不锁定、不写版本、不入队续驱。成功后锁定仓库集与职责并写入新蓝图版本，经续驱链异步进入 repo-plan（请求内不执行）。⚠️ 409 blueprint_gate_already_locked 表示仓库集已经锁定成功：不要重试确认，改为轮询 get_blueprint_status。",
+    "endpoint": "/api/mcp/tools/confirm_blueprint_repository_gate/",
+    "inputSchema": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "operation_id"
+          ]
+        },
+        {
+          "required": [
+            "session_id"
+          ]
+        },
+        {
+          "required": [
+            "artifact_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "expected_gate_snapshot_hash": {
+          "description": "读取快照时得到的 gate_token.gate_snapshot_hash（原样回传）",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "expected_gate_version": {
+          "description": "读取快照时得到的 gate_token.gate_version（原样回传）",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "idempotency_key": {
+          "description": "幂等键（可选）",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_gate_version",
+        "expected_gate_snapshot_hash"
+      ],
+      "type": "object"
+    },
+    "name": "confirm_blueprint_repository_gate",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "properties": {
+            "run_id": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id",
+            "action",
+            "repository_id",
+            "thread_id",
+            "requires_research",
+            "ready_to_lock",
+            "gate_token",
+            "action_committed",
+            "drive_pending",
+            "next_actions",
+            "locked",
+            "locked_repo_count",
+            "auto_removed_repository_ids"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retry_scope": {
+              "const": "confirm_blueprint_repository_gate"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "action": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "action_committed": {
+          "type": "boolean"
+        },
+        "auto_removed_repository_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "drive_pending": {
+          "type": "boolean"
+        },
+        "gate_token": {
+          "additionalProperties": true,
+          "properties": {
+            "gate_snapshot_hash": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "gate_version": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "gate_version",
+            "gate_snapshot_hash"
+          ],
+          "type": "object"
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "locked_repo_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "ready_to_lock": {
+          "type": "boolean"
+        },
+        "repository_id": {
+          "type": "string"
+        },
+        "requires_research": {
+          "type": "boolean"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "thread_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-confirm-blueprint-repository-gate"
   },
   {
     "annotations": {
@@ -2706,6 +3161,267 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "type": "object"
     },
     "route_name": "mcp-tool-get-blueprint-repositories"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+      "title": "蓝图 · 读取仓库确认门快照"
+    },
+    "description": "【仓库确认门 · 读取】蓝图停在 awaiting_repository_confirmation 时读取完整仓库确认门快照：逐仓角色、职责、fitness、待调研与移除状态，以及 gate_token（gate_version + gate_snapshot_hash，确认时原样回传）、ready_to_lock、lock_blockers 与服务端权威的 next_actions。只读：不推进会话、不派发调研、不改变 gate_token。门未开启、蓝图不存在或非项目成员一律同形 404。坐标取 operation_id / session_id / artifact_id 之一，可附 project_id。",
+    "endpoint": "/api/mcp/tools/get_blueprint_repository_gate/",
+    "inputSchema": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "operation_id"
+          ]
+        },
+        {
+          "required": [
+            "session_id"
+          ]
+        },
+        {
+          "required": [
+            "artifact_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "get_blueprint_repository_gate",
+    "outputSchema": {
+      "additionalProperties": true,
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "error_code"
+            ]
+          },
+          "properties": {
+            "run_id": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id",
+            "artifact_id",
+            "session_id",
+            "thread_id",
+            "thread_status",
+            "current_stage",
+            "repo_count",
+            "repos",
+            "pending_research_repository_ids",
+            "gate_token",
+            "ready_to_lock",
+            "lock_blockers",
+            "next_actions"
+          ]
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error_code": {
+              "type": "string"
+            },
+            "http_status": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "retry_scope": {
+              "const": "get_blueprint_repository_gate"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error_code",
+            "http_status",
+            "retryable",
+            "run_id"
+          ]
+        }
+      ],
+      "properties": {
+        "artifact_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "current_stage": {
+          "type": "string"
+        },
+        "gate_token": {
+          "additionalProperties": true,
+          "properties": {
+            "gate_snapshot_hash": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "gate_version": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "gate_version",
+            "gate_snapshot_hash"
+          ],
+          "type": "object"
+        },
+        "lock_blockers": {
+          "items": {
+            "enum": [
+              "empty_snapshot",
+              "pending_clarification",
+              "pending_research"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "next_actions": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "pending_research_repository_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ready_to_lock": {
+          "type": "boolean"
+        },
+        "repo_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repos": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "auto_removed": {
+                "type": "boolean"
+              },
+              "fitness": {
+                "additionalProperties": true,
+                "properties": {
+                  "current_state_summary": {
+                    "type": "string"
+                  },
+                  "task_status": {
+                    "type": "string"
+                  },
+                  "verdict": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "verdict",
+                  "task_status",
+                  "current_state_summary"
+                ],
+                "type": "object"
+              },
+              "pending_research": {
+                "type": "boolean"
+              },
+              "remove_reason": {
+                "type": "string"
+              },
+              "removed": {
+                "type": "boolean"
+              },
+              "repository_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "repository_name": {
+                "type": "string"
+              },
+              "responsibility": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "repository_id",
+              "repository_name",
+              "role",
+              "responsibility",
+              "fitness",
+              "pending_research",
+              "removed",
+              "remove_reason",
+              "auto_removed"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "thread_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "thread_status": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "route_name": "mcp-tool-get-blueprint-repository-gate"
   },
   {
     "annotations": {

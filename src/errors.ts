@@ -31,6 +31,10 @@ const publicCodes = new Set([
   'project_unresolved', 'repo_task_matrix_empty', 'repo_task_not_found', 'repo_task_required',
   'repository_access_denied', 'repository_not_found', 'repository_not_indexed', 'session_not_found',
   'session_not_owned', 'stale', 'symbol_not_found', 'technical_plan_not_found', 'throttled', 'unavailable', 'work_item_context_not_found',
+  // Repository confirmation gate and execution admission (expose-blueprint-repository-gate).
+  'blueprint_gate_already_locked', 'blueprint_gate_content_invalid', 'blueprint_gate_pending_clarification',
+  'blueprint_gate_pending_research', 'blueprint_gate_stale', 'blueprint_gate_upgrade_unavailable',
+  'blueprint_repositories_not_locked', 'empty_snapshot', 'invalid_role', 'missing_repository_id', 'unknown_action',
 ])
 
 function failure(code: string, detail: string, status: number | null, retryable: boolean, runId: string | null) {

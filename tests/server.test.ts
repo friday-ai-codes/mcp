@@ -56,6 +56,20 @@ describe('fRIDAY_TOOLS', () => {
       expect(effects.get('request_technical_blueprint_changes')).toMatchObject({
         readOnlyHint: false, idempotentHint: false, destructiveHint: true,
       })
+      // Repository confirmation gate: read is safe to repeat, action and confirm mutate.
+      expect(effects.get('get_blueprint_repository_gate')).toMatchObject({
+        readOnlyHint: true, idempotentHint: true, destructiveHint: false,
+      })
+      expect(effects.get('apply_blueprint_repository_gate_action')).toMatchObject({
+        readOnlyHint: false, idempotentHint: false,
+      })
+      expect(effects.get('confirm_blueprint_repository_gate')).toMatchObject({
+        readOnlyHint: false, idempotentHint: true, destructiveHint: true,
+      })
+      const confirm = tools.find(tool => tool.name === 'confirm_blueprint_repository_gate')
+      expect(confirm?.inputSchema.required).toEqual(
+        expect.arrayContaining(['expected_gate_version', 'expected_gate_snapshot_hash']),
+      )
       expect(tools).toEqual(FRIDAY_TOOLS.map(tool => ({
         name: tool.name,
         title: tool.annotations.title,
@@ -94,10 +108,14 @@ describe('fRIDAY_TOOLS', () => {
     }
   })
 
-  it('定义了与服务端一致的 62 个工具', () => {
-    expect(FRIDAY_TOOLS).toHaveLength(62)
+  it('定义了与服务端一致的 65 个工具', () => {
+    expect(FRIDAY_TOOLS).toHaveLength(65)
     const names = FRIDAY_TOOLS.map(t => t.name)
-    expect(new Set(names).size).toBe(62)
+    expect(new Set(names).size).toBe(65)
+    // 蓝图仓库确认门：读取快照、逐仓动作、带版本坐标的确认锁定
+    expect(names).toContain('get_blueprint_repository_gate')
+    expect(names).toContain('apply_blueprint_repository_gate_action')
+    expect(names).toContain('confirm_blueprint_repository_gate')
     expect(names).toContain('route_repositories')
     expect(names).toContain('grep_repository')
     expect(names).toContain('execute_coding_plan')
@@ -384,6 +402,42 @@ describe('callFridayTool', () => {
       expect(JSON.stringify(result)).not.toContain(CONFIG.accessToken)
       expect(JSON.stringify(result)).not.toContain('private')
     }
+  })
+
+  const GATE_SESSION = '7c1f2a4e-9b0d-4c3e-8f5a-2d6b1e0c9a87'
+  const GATE_REPO = '3e5d7f9a-1b2c-4d4e-8f6a-7b8c9d0e1f2a'
+  it.each([
+    ['confirm_blueprint_repository_gate', 'blueprint_gate_stale', 409, false],
+    ['confirm_blueprint_repository_gate', 'blueprint_gate_pending_research', 409, false],
+    ['confirm_blueprint_repository_gate', 'blueprint_gate_pending_clarification', 409, false],
+    ['confirm_blueprint_repository_gate', 'blueprint_gate_already_locked', 409, false],
+    ['confirm_blueprint_repository_gate', 'blueprint_gate_content_invalid', 409, false],
+    ['confirm_blueprint_repository_gate', 'empty_snapshot', 400, false],
+    ['apply_blueprint_repository_gate_action', 'blueprint_gate_upgrade_unavailable', 503, true],
+    ['apply_blueprint_repository_gate_action', 'unknown_action', 400, false],
+    ['apply_blueprint_repository_gate_action', 'missing_repository_id', 400, false],
+    ['apply_blueprint_repository_gate_action', 'invalid_role', 400, false],
+    ['get_blueprint_repository_gate', 'not_found', 404, false],
+    ['execute_coding_plan', 'blueprint_repositories_not_locked', 409, false],
+    ['create_merge_request', 'blueprint_repositories_not_locked', 409, false],
+  ] as const)('%s passes through the structured %s gate error', async (name, code, status, retryable) => {
+    const args: Record<string, unknown> = { session_id: GATE_SESSION }
+    if (name === 'confirm_blueprint_repository_gate')
+      Object.assign(args, { expected_gate_version: 7, expected_gate_snapshot_hash: 'a'.repeat(64) })
+    if (name === 'apply_blueprint_repository_gate_action')
+      Object.assign(args, { action: 'upgrade_research', repository_id: GATE_REPO })
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      error_code: code, retryable, run_id: GATE_SESSION, detail: `private ${CONFIG.accessToken}`,
+    }, status))
+    const context = new RunContext()
+    const result = await callFridayTool(name, args, context, fetchMock, () => CONFIG)
+    expect(result.isError).toBe(true)
+    expect(result.structuredContent).toEqual({ error_code: code, http_status: status, retryable, run_id: GATE_SESSION })
+    expect(JSON.stringify(result)).not.toContain('private')
+    expect(JSON.stringify(result)).not.toContain(CONFIG.accessToken)
+    expect(fetchMock).toHaveBeenCalledWith(`${CONFIG.baseUrl}/api/mcp/tools/${name}/`, expect.objectContaining({
+      method: 'POST', body: JSON.stringify(args),
+    }))
   })
 
   it.each([
