@@ -54,7 +54,7 @@ npx -y @friday-ai-codes/mcp@0.7.0 register
 
 ## 工具集
 
-55 个工具对应 Friday `/api/mcp/tools/*` 端点，其中包括仓库发现（`route_repositories`）、Graph RAG 检索（`search_rag_chunks`、`find_related_chunks`）、精确文本检索（`grep_repository`）、仓库浏览（`get_repository` / `list_repository_files` / `get_repository_file`）、分析与计划（`analyze_repository` / `create_coding_plan` / `improve_coding_plan`）、执行与 MR（`execute_coding_plan` / `get_coding_execution` / `summarize_branch` / `create_merge_request`）、飞书工作项（`get_feishu_work_item_context` / `create_feishu_technical_plan` / `create_work_item_repo_tasks` / `execute_work_item_repo_tasks`）、学习案例（`create_learning_case` / `search_learning_cases`）、交付知识图谱（`search_delivery_knowledge` / `get_entity_timeline` / `get_related_entities`）。
+71 个工具对应 Friday `/api/mcp/tools/*` 端点，其中包括仓库发现（`route_repositories`）、Graph RAG 检索（`search_rag_chunks`、`find_related_chunks`）、精确文本检索（`grep_repository`）、仓库浏览（`get_repository` / `list_repository_files` / `get_repository_file`）、分析与计划（`analyze_repository` / `create_coding_plan` / `improve_coding_plan`）、执行与 MR（`execute_coding_plan` / `get_coding_execution` / `summarize_branch` / `create_merge_request`）、飞书工作项（`get_feishu_work_item_context` / `create_feishu_technical_plan` / `create_work_item_repo_tasks` / `execute_work_item_repo_tasks`）、学习案例（`create_learning_case` / `search_learning_cases`）、交付知识图谱（`search_delivery_knowledge` / `get_entity_timeline` / `get_related_entities`），以及技术蓝图的定向重试（`get_blueprint_repo_plan` / `retry_blueprint_repo_plan` / `get_blueprint_merge_artifacts` / `retry_blueprint_merge`）、评审发现处置（`resolve_blueprint_finding` / `dismiss_blueprint_finding`）、终审（`approve_technical_blueprint` / `request_technical_blueprint_changes`）与确认交接（`get_confirmed_blueprint_handoff`）。
 
 每个工具都带 MCP 标准 `annotations`（中文 `title` 按「阶段 · 动作」分组 + `readOnlyHint` / `idempotentHint` / `openWorldHint` 行为提示）。
 
@@ -63,6 +63,25 @@ npx -y @friday-ai-codes/mcp@0.7.0 register
 ```bash
 npx @friday-ai-codes/skills
 ```
+
+## 蓝图交接文件
+
+`get_confirmed_blueprint_handoff` 校验服务端响应与调用参数的四个确认坐标一致、状态为 `confirmed` 且仓库任务非空后，把完整交接包按服务端字节原样写入系统临时目录下的 `friday-mcp-handoffs/`，只向模型返回文件路径、SHA-256、仓库任务数、确认坐标和不含正文的元数据。坐标不一致返回 `handoff_binding_invalid`，目录不属于当前用户或权限不是 0700 返回 `handoff_write_failed`，两种情况都不写文件。目录权限为 0700，文件先以 `wx` + 0600 写入临时文件再原子 `rename`。
+
+每次交接成功写入后会清理该目录中较早的交接文件：
+
+- 只处理该目录的直接子项，且名称必须是本工具生成的 `blueprint-handoff-<artifact>-<version>-<uuid>.json`（或对应的 `.json.tmp`）；其他文件、子目录、符号链接和不属于当前用户的文件一律保留。
+- 刚写入的文件永不删除。先删除修改时间超过保留期的文件，再按修改时间从新到旧保留不超过数量上限（含刚写入的文件）；超过 1 小时的孤儿 `.tmp` 文件直接删除。
+- 清理失败只在 stderr 输出失败计数，不影响当次交接结果。其他工具不会写盘，也不会触发清理。
+
+| 环境变量 | 默认值 | 取值范围 | 含义 |
+| --- | --- | --- | --- |
+| `FRIDAY_MCP_HANDOFF_RETENTION_DAYS` | `7` | 1–90 | 交接文件保留天数 |
+| `FRIDAY_MCP_HANDOFF_MAX_FILES` | `50` | 1–500 | 目录内最多保留的交接文件数 |
+
+非整数或越界的取值会回落到默认值。
+
+Windows 没有 POSIX 属主与权限位，适配器在 Windows 上不强校验 0700 / 0600 与文件属主，只依赖用户临时目录自身的 ACL 隔离；需要更强隔离时请在 macOS / Linux 上运行。
 
 ## License
 

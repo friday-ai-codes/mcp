@@ -13,6 +13,20 @@ const clientMessages = {
   handoff_write_failed: 'Friday 蓝图交接包写入本机文件失败。',
 }
 
+// Local guidance for server codes from targeted retries and confirmed handoff
+// (expose-blueprint-review-and-handoff). Upstream detail text is never forwarded.
+export const serverErrorHints: Record<string, string> = {
+  blueprint_repo_plan_stale: '该仓的 attempt 或 content hash 已变化，或坐标已被一次成功重试消费；请重新调用 get_blueprint_repo_plan 读取最新坐标。',
+  blueprint_repo_plan_not_retryable: '该仓当前状态不允许定向重试（运行中、已就绪或不在可重试阶段）；请先调用 get_blueprint_repo_plan 查看 retry_reason。',
+  blueprint_merge_stale: '融合坐标已不是最新一轮或已被一次成功重试消费；请重新调用 get_blueprint_merge_artifacts 读取最新坐标。',
+  blueprint_merge_not_retryable: '当前融合不可恢复（无轮次、未失败或存在其他阻塞澄清）；请先调用 get_blueprint_merge_artifacts 查看 retry_reason。',
+  blueprint_handoff_mismatch: '技术方案不属于该技术蓝图，请核对 technical_plan_id 与 artifact_id。',
+  blueprint_handoff_stale: '技术蓝图版本或内容哈希已变化，请使用确认时的版本坐标。',
+  blueprint_handoff_empty: '已确认蓝图没有可交接的仓库任务。',
+  blueprint_not_confirmed: '技术蓝图尚未确认，不能交接；请先完成终审确认。',
+  blueprint_delivery_not_ready: '蓝图业务交付合同未就绪，请先修复评审发现。',
+}
+
 // Only these server-owned identifiers may cross the HTTP error boundary.
 const publicCodes = new Set([
   'ambiguous_symbol', 'analysis_not_found', 'authentication_failed', 'blueprint_delivery_not_ready',
@@ -35,6 +49,9 @@ const publicCodes = new Set([
   'blueprint_gate_already_locked', 'blueprint_gate_content_invalid', 'blueprint_gate_pending_clarification',
   'blueprint_gate_pending_research', 'blueprint_gate_stale', 'blueprint_gate_upgrade_unavailable',
   'blueprint_repositories_not_locked', 'empty_snapshot', 'invalid_role', 'missing_repository_id', 'unknown_action',
+  // Targeted repo plan and merge retries (expose-blueprint-review-and-handoff).
+  'blueprint_merge_not_retryable', 'blueprint_merge_stale', 'blueprint_repo_plan_not_retryable',
+  'blueprint_repo_plan_stale',
 ])
 
 function failure(code: string, detail: string, status: number | null, retryable: boolean, runId: string | null) {
@@ -59,5 +76,6 @@ export function httpError(status: number, body: Record<string, unknown>, runId: 
   const code = typeof body.error_code === 'string' && publicCodes.has(body.error_code)
     ? body.error_code : 'mcp_http_error'
   const retryable = typeof body.retryable === 'boolean' ? body.retryable : status === 408 || status === 429 || status >= 500
-  return failure(code, `Friday 工具调用失败（HTTP ${status}，${code}）。`, status, retryable, runId)
+  const hint = Object.hasOwn(serverErrorHints, code) ? serverErrorHints[code] ?? '' : ''
+  return failure(code, `Friday 工具调用失败（HTTP ${status}，${code}）。${hint}`, status, retryable, runId)
 }
