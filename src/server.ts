@@ -7,6 +7,9 @@
  * X-Friday-Run-ID，使多步 workflow 在 Friday Interaction Ledger 里
  * 聚合为同一条轨迹。
  *
+ * 轮询节流：蓝图轮询工具按服务端 poll_after_ms 与 429 retry_after_ms 在本地节流
+ * （见 pollPacing.ts），从不自动重发。
+ *
  * 容错：缺配置 / 401 / 403 / 非 200 / 网络错误一律返回 isError 文本，
  * 绝不抛异常崩掉 stdio 进程；PAT 绝不进入任何返回文本或日志。
  */
@@ -18,7 +21,8 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv'
-import { clientError, httpError } from './errors.js'
+import { clientError, httpError, localThrottled, retryAfterMs } from './errors.js'
+import { isPacedTool, pacingKey, PollPacer, sessionIds } from './pollPacing.js'
 import { isObject, persistConfirmedHandoff, success } from './resultAdapters.js'
 import type { FridayConfig } from './config.js'
 import { resolveConfig } from './config.js'
@@ -42,6 +46,8 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 /** Session correlation is forwarded only after accepting a response from the service. */
 export class RunContext {
   runId: string | null = null
+  /** Per-session local pacing for blueprint polling tools. */
+  readonly pacing = new PollPacer()
 }
 
 /**
@@ -65,6 +71,14 @@ export async function callFridayTool(
   if (!config)
     return clientError('mcp_config_missing', runContext.runId)
 
+  const pacing = runContext.pacing
+  const paceKey = isPacedTool(tool.name, tool.diagnostic) ? pacingKey(tool.name, args ?? {}) : null
+  if (paceKey !== null) {
+    const remaining = pacing.remaining(paceKey)
+    if (remaining !== null)
+      return localThrottled(remaining, runContext.runId)
+  }
+
   const url = `${config.baseUrl}${tool.endpoint}`
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${config.accessToken}`,
@@ -75,6 +89,7 @@ export async function callFridayTool(
 
   let resp: Response
   let bytes: Uint8Array
+  const sentAt = pacing.clock()
   try {
     resp = await fetchImpl(url, {
       method: 'POST',
@@ -102,7 +117,9 @@ export async function callFridayTool(
     const id = envelope.run_id ?? resp.headers.get('X-Friday-Run-ID')
     if (typeof id === 'string' && uuidPattern.test(id) && !id.includes(config.accessToken))
       runContext.runId = id
-    const error = httpError(resp.status, envelope, runContext.runId)
+    const error = httpError(resp.status, envelope, runContext.runId, resp.headers)
+    if (paceKey !== null && resp.status === 429)
+      pacing.recordThrottle(paceKey, sentAt, retryAfterMs(envelope, resp.headers), sessionIds(args))
     if (tool.diagnostic && envelope.retry_scope === tool.name)
       return { ...error, structuredContent: { ...error.structuredContent, retry_scope: tool.name } }
     return error
@@ -118,6 +135,10 @@ export async function callFridayTool(
   const id = body.run_id
   if (typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(id))
     runContext.runId = id
+  if (paceKey !== null)
+    pacing.recordPoll(paceKey, sentAt, body.poll_after_ms, sessionIds(args, body))
+  else if (!tool.annotations.readOnlyHint)
+    pacing.clearSession(sessionIds(args, body))
   if (tool.name === 'get_confirmed_blueprint_handoff')
     return persistConfirmedHandoff(bytes, body, args, typeof id === 'string' ? id : null)
   return success(body)

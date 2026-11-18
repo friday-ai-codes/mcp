@@ -25,6 +25,30 @@ export const serverErrorHints: Record<string, string> = {
   blueprint_handoff_empty: '已确认蓝图没有可交接的仓库任务。',
   blueprint_not_confirmed: '技术蓝图尚未确认，不能交接；请先完成终审确认。',
   blueprint_delivery_not_ready: '蓝图业务交付合同未就绪，请先修复评审发现。',
+  throttled: '轮询过于频繁，已被限流；请至少等待 retry_after_ms 毫秒后再查询，期间不要重发；poll_after_ms 为 0 时停止轮询。',
+}
+
+// Throttle backoff (verify-blueprint-recovery-and-release, SEC-06). The service sends
+// retry_after_ms in the 429 body and Retry-After (seconds) as a header; anything missing or
+// malformed falls back to a bounded conservative default instead of an immediate retry.
+export const DEFAULT_RETRY_AFTER_MS = 5000
+export const MAX_RETRY_AFTER_MS = 300_000
+
+function positiveInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+/** Resolve the 429 backoff: body retry_after_ms, else Retry-After × 1000, else 5000; clamped. */
+export function retryAfterMs(body: Record<string, unknown>, headers?: Headers | null): number {
+  let value = positiveInteger(body.retry_after_ms)
+  if (value === null) {
+    const header = headers?.get('Retry-After')?.trim() ?? ''
+    const seconds = /^\d+$/.test(header) ? positiveInteger(Number(header)) : null
+    value = seconds === null ? null : seconds * 1000
+  }
+  if (value === null)
+    return DEFAULT_RETRY_AFTER_MS
+  return Math.min(Math.max(value, 1), MAX_RETRY_AFTER_MS)
 }
 
 // Only these server-owned identifiers may cross the HTTP error boundary.
@@ -70,12 +94,35 @@ export function clientError(code: keyof typeof clientMessages, runId: string | n
   return failure(code, detail, status, retryable, runId)
 }
 
-export function httpError(status: number, body: Record<string, unknown>, runId: string | null) {
+export function httpError(
+  status: number,
+  body: Record<string, unknown>,
+  runId: string | null,
+  headers?: Headers | null,
+) {
   if (status === 401 || status === 403)
     return clientError('mcp_authentication_failed', runId, status)
   const code = typeof body.error_code === 'string' && publicCodes.has(body.error_code)
     ? body.error_code : 'mcp_http_error'
   const retryable = typeof body.retryable === 'boolean' ? body.retryable : status === 408 || status === 429 || status >= 500
   const hint = Object.hasOwn(serverErrorHints, code) ? serverErrorHints[code] ?? '' : ''
-  return failure(code, `Friday 工具调用失败（HTTP ${status}，${code}）。${hint}`, status, retryable, runId)
+  if (status !== 429)
+    return failure(code, `Friday 工具调用失败（HTTP ${status}，${code}）。${hint}`, status, retryable, runId)
+  const wait = retryAfterMs(body, headers)
+  const throttleHint = code === 'throttled' ? hint : serverErrorHints.throttled
+  const result = failure(code, `Friday 工具调用失败（HTTP 429，${code}）。${throttleHint}（retry_after_ms=${wait}）`, status, retryable, runId)
+  return { ...result, structuredContent: { ...result.structuredContent, retry_after_ms: wait } }
+}
+
+/** Local pacing refusal: nothing was sent, so there is no HTTP status. */
+export function localThrottled(remainingMs: number, runId: string | null) {
+  const wait = Math.max(Math.ceil(remainingMs), 1)
+  const result = failure(
+    'throttled',
+    `未发送请求：距服务端允许的下次查询还有 ${wait} 毫秒。${serverErrorHints.throttled}`,
+    null,
+    true,
+    runId,
+  )
+  return { ...result, structuredContent: { ...result.structuredContent, retry_after_ms: wait } }
 }

@@ -795,3 +795,70 @@ describe('confirmed handoff file and cleanup', () => {
     })
   })
 })
+
+describe('blueprint poll throttling (SEC-06)', () => {
+  const OPERATION = '1366baaa-2f1e-4bf9-bee3-1606c9ff8f88'
+  const receipt = (poll_after_ms: number) => ({
+    operation_id: OPERATION, session_id: OPERATION, artifact_id: OPERATION, status: 'researching',
+    poll_after_ms, next_actions: ['get_blueprint_operation'],
+  })
+
+  it('forwards the Retry-After header to httpError and paces the next poll locally', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchImpl = vi.fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ error_code: 'throttled', retryable: true }), {
+          status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '2' },
+        }))
+        .mockResolvedValueOnce(jsonResponse(receipt(1000)))
+      const context = new RunContext()
+      const read = () => callFridayTool('get_blueprint_operation', { operation_id: OPERATION }, context, fetchImpl, () => CONFIG)
+      const limited = await read()
+      expect(limited.structuredContent).toEqual({
+        error_code: 'throttled', http_status: 429, retryable: true, run_id: null, retry_after_ms: 2000,
+      })
+      expect(JSON.stringify(limited)).not.toContain(CONFIG.accessToken)
+      await vi.advanceTimersByTimeAsync(1999)
+      expect((await read()).structuredContent).toMatchObject({ error_code: 'throttled', http_status: null, retry_after_ms: 1 })
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect((await read()).structuredContent).toEqual(receipt(1000))
+      expect(fetchImpl).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('lets a fresh start_technical_blueprint receipt be polled immediately', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchImpl = vi.fn()
+        .mockResolvedValueOnce(jsonResponse(receipt(60_000)))
+        .mockResolvedValueOnce(jsonResponse({ ...receipt(2000), status: 'accepted' }))
+        .mockResolvedValueOnce(jsonResponse(receipt(2000)))
+      const context = new RunContext()
+      const call = (name: string, args: Record<string, unknown>) => callFridayTool(name, args, context, fetchImpl, () => CONFIG)
+      await call('get_blueprint_operation', { operation_id: OPERATION })
+      const started = await call('start_technical_blueprint', {
+        project_id: OPERATION, idempotency_key: 'request-A', requirement_text: 'Design',
+      })
+      expect(started.isError).toBeFalsy()
+      expect((await call('get_blueprint_operation', { operation_id: OPERATION })).isError).toBeFalsy()
+      expect(fetchImpl).toHaveBeenCalledTimes(3)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps 429 handling for non-polling tools without local pacing', async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => jsonResponse({ error_code: 'throttled', retry_after_ms: 1500 }, 429))
+    const context = new RunContext()
+    for (let i = 0; i < 2; i++) {
+      const result = await callFridayTool('search_rag_chunks', { query: 'x' }, context, fetchImpl, () => CONFIG)
+      expect(result.structuredContent).toMatchObject({ error_code: 'throttled', http_status: 429, retry_after_ms: 1500 })
+    }
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+})
