@@ -8,6 +8,7 @@
  * PAT 明文绝不回显、绝不写日志。
  */
 
+import { PINNED_PACKAGE } from './packageIdentity.js'
 import process from 'node:process'
 import * as p from '@clack/prompts'
 import { CONFIG_FILE, normalizeBaseUrl, resolveConfig, writeConfig } from './config.js'
@@ -198,7 +199,7 @@ export async function runSetup(): Promise<number> {
   if (!latency.ok) {
     spinner.stop(`${pc.red('✗')} 无法访问 ${config.baseUrl}/health`)
     p.log.warn('配置已保存，但服务不可达——请检查地址、网络、VPN 或端口后重跑 setup。')
-    p.outro(`诊断命令：${pc.cyan('npx -y @friday-ai-codes/mcp doctor')}`)
+    p.outro(`诊断命令：${pc.cyan(`npx -y ${PINNED_PACKAGE} doctor`)}`)
     return 1
   }
   spinner.stop(

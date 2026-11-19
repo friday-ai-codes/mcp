@@ -8,6 +8,7 @@
  * 配置文件以 0600 权限写入（仅当前用户可读写）。
  */
 
+import { PINNED_PACKAGE } from './packageIdentity.js'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -22,7 +23,7 @@ export const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
 
 /** 缺配置时给 agent / 用户看的提示文案（不含任何敏感值）。 */
 export const MISSING_CONFIG_MESSAGE
-  = 'Friday MCP 未配置。请运行: npx -y @friday-ai-codes/mcp init --base-url <Friday 实例地址> --token <访问令牌>\n'
+  = `Friday MCP 未配置。请运行: npx -y ${PINNED_PACKAGE} init --base-url <Friday 实例地址> --token <访问令牌>\n`
     + '访问令牌在 Friday Web 控制台「个人资料 → 访问令牌」创建。\n'
     + '也可以通过环境变量 FRIDAY_BASE_URL / FRIDAY_ACCESS_TOKEN 配置。'
 

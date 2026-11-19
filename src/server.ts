@@ -7,6 +7,10 @@
  * X-Friday-Run-ID，使多步 workflow 在 Friday Interaction Ledger 里
  * 聚合为同一条轨迹。
  *
+ * 轮询节流：蓝图轮询工具按服务端 poll_after_ms 与 429 retry_after_ms 在本地节流
+ * （见 pollPacing.ts），从不自动重发。重试时长放在结果 _meta['friday/retry_after_ms']，
+ * structuredContent 保持与 outputSchema 错误分支一致。
+ *
  * 容错：缺配置 / 401 / 403 / 非 200 / 网络错误一律返回 isError 文本，
  * 绝不抛异常崩掉 stdio 进程；PAT 绝不进入任何返回文本或日志。
  */
@@ -17,95 +21,34 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, rename, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv'
+import { clientError, httpError, localThrottled, retryAfterMs } from './errors.js'
+import { isPacedTool, pacingKey, PollPacer, sessionIds } from './pollPacing.js'
+import { isObject, persistConfirmedHandoff, success } from './resultAdapters.js'
 import type { FridayConfig } from './config.js'
-import { MISSING_CONFIG_MESSAGE, resolveConfig } from './config.js'
-import { FRIDAY_TOOLS, TOOL_ANNOTATIONS } from './tools.js'
-import packageInfo from '../package.json' with { type: 'json' }
+import { resolveConfig } from './config.js'
+import { FRIDAY_TOOLS } from './tools.js'
+import { SERVER_VERSION } from './packageIdentity.js'
 
 export const SERVER_NAME = 'friday'
-export const SERVER_VERSION = packageInfo.version
+export { SERVER_VERSION }
+
+const provider = new AjvJsonSchemaValidator()
+const toolsByName = new Map(FRIDAY_TOOLS.map(tool => [tool.name, {
+  ...tool,
+  validate: provider.getValidator(tool.outputSchema),
+  diagnostic: tool.inputSchema.anyOf !== undefined && tool.name.startsWith('get_blueprint_'),
+  validateInput: provider.getValidator(tool.inputSchema),
+}]))
 
 const REQUEST_TIMEOUT_MS = 120_000
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-interface ToolCallResult {
-  // 索引签名满足 MCP SDK 的 ServerResult 结构要求
-  [key: string]: unknown
-  content: Array<{ type: 'text', text: string }>
-  isError?: boolean
-}
-
-function textResult(text: string, isError = false): ToolCallResult {
-  return isError
-    ? { content: [{ type: 'text', text }], isError: true }
-    : { content: [{ type: 'text', text }] }
-}
-
-function safeFilePart(value: unknown): string {
-  return String(value ?? '').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 64) || 'unknown'
-}
-
-async function persistConfirmedHandoff(
-  bodyText: string,
-  body: Record<string, unknown>,
-  args: Record<string, unknown>,
-): Promise<ToolCallResult> {
-  const coordinates = ['technical_plan_id', 'artifact_id', 'artifact_version_id', 'content_hash']
-  if (coordinates.some(key => typeof args[key] !== 'string' || !args[key] || body[key] !== args[key])
-    || body.current_status !== 'confirmed'
-    || !Array.isArray(body.repository_tasks) || body.repository_tasks.length === 0
-    || body.repository_task_count !== body.repository_tasks.length
-    || typeof body.markdown !== 'string' || !body.markdown
-    || !Number.isInteger(body.version_no) || Number(body.version_no) < 1) {
-    return textResult(JSON.stringify({ code: 'handoff_binding_invalid', retryable: false }), true)
-  }
-  const readiness = body.delivery_readiness as { ready?: boolean } | undefined
-  const canonical = body.canonical_content as { delivery_contract_version?: unknown } | undefined
-  if (canonical?.delivery_contract_version !== undefined && readiness?.ready !== true)
-    return textResult(JSON.stringify({ code: 'blueprint_delivery_not_ready', retryable: false }), true)
-
-  const directory = join(tmpdir(), 'friday-mcp-handoffs')
-  await mkdir(directory, { recursive: true, mode: 0o700 })
-
-  const artifactId = safeFilePart(body.artifact_id)
-  const versionId = safeFilePart(body.artifact_version_id)
-  const finalPath = join(directory, `blueprint-handoff-${artifactId}-${versionId}-${randomUUID()}.json`)
-  const temporaryPath = `${finalPath}.${process.pid}.tmp`
-  await writeFile(temporaryPath, bodyText, { encoding: 'utf8', mode: 0o600 })
-  await rename(temporaryPath, finalPath)
-
-  const repositoryTasks = Array.isArray(body.repository_tasks) ? body.repository_tasks : []
-  const markdown = typeof body.markdown === 'string' ? body.markdown : ''
-  return textResult(JSON.stringify({
-    technical_plan_id: body.technical_plan_id,
-    artifact_id: body.artifact_id,
-    artifact_version_id: body.artifact_version_id,
-    version_no: body.version_no,
-    content_hash: body.content_hash,
-    current_status: body.current_status,
-    delivery_readiness: body.delivery_readiness ?? { ready: false, status: 'legacy_unverified' },
-    repository_task_count: repositoryTasks.length,
-    markdown_chars: markdown.length,
-    handoff_file: finalPath,
-    handoff_file_sha256: createHash('sha256').update(bodyText).digest('hex'),
-    note: '完整交接包已原样写入本机文件。请直接上传该文件，不要复制或改写正文。',
-  }, null, 2))
-}
-
-/** 会话级 run_id 状态，独立成类便于测试。 */
+/** Session correlation is forwarded only after accepting a response from the service. */
 export class RunContext {
   runId: string | null = null
-
-  remember(body: unknown): void {
-    if (typeof body === 'object' && body !== null) {
-      const runId = (body as Record<string, unknown>).run_id
-      if (typeof runId === 'string' && runId)
-        this.runId = runId
-    }
-  }
+  /** Per-session local pacing for blueprint polling tools. */
+  readonly pacing = new PollPacer()
 }
 
 /**
@@ -117,12 +60,27 @@ export async function callFridayTool(
   runContext: RunContext,
   fetchImpl: typeof fetch = fetch,
   configResolver: () => FridayConfig | null = resolveConfig,
-): Promise<ToolCallResult> {
+) {
+  const tool = toolsByName.get(toolName)
+  if (!tool)
+    return clientError('mcp_unknown_tool', runContext.runId)
+
+  if (tool.diagnostic && !tool.validateInput(args).valid)
+    return httpError(400, { error_code: 'invalid_params', retryable: false }, runContext.runId)
+
   const config = configResolver()
   if (!config)
-    return textResult(MISSING_CONFIG_MESSAGE, true)
+    return clientError('mcp_config_missing', runContext.runId)
 
-  const url = `${config.baseUrl}/api/mcp/tools/${toolName}/`
+  const pacing = runContext.pacing
+  const paceKey = isPacedTool(tool.name, tool.diagnostic) ? pacingKey(tool.name, args ?? {}) : null
+  if (paceKey !== null) {
+    const remaining = pacing.remaining(paceKey)
+    if (remaining !== null)
+      return localThrottled(remaining, runContext.runId)
+  }
+
+  const url = `${config.baseUrl}${tool.endpoint}`
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${config.accessToken}`,
     'Content-Type': 'application/json',
@@ -131,6 +89,8 @@ export async function callFridayTool(
     headers['X-Friday-Run-ID'] = runContext.runId
 
   let resp: Response
+  let bytes: Uint8Array
+  const sentAt = pacing.clock()
   try {
     resp = await fetchImpl(url, {
       method: 'POST',
@@ -138,48 +98,51 @@ export async function callFridayTool(
       body: JSON.stringify(args ?? {}),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
+    bytes = new Uint8Array(await resp.arrayBuffer())
   }
-  catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    return textResult(`Friday 请求失败（网络 / 超时）: ${message}`, true)
-  }
-
-  if (resp.status === 401 || resp.status === 403) {
-    return textResult(
-      '令牌无效或已失效（401/403）。请在 Friday 个人资料页重新创建访问令牌，'
-      + '然后运行: npx -y @friday-ai-codes/mcp init --base-url <地址> --token <新令牌>',
-      true,
-    )
+  catch (error) {
+    const timeout = error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)
+    return clientError(timeout ? 'mcp_timeout' : 'mcp_network_error', runContext.runId)
   }
 
-  let bodyText: string
+  let body: unknown
   try {
-    bodyText = await resp.text()
+    body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
   }
   catch {
-    bodyText = ''
+    if (resp.ok)
+      return clientError('mcp_invalid_json', runContext.runId, resp.status)
   }
+  if (!resp.ok) {
+    const envelope = isObject(body) ? body : {}
+    const id = envelope.run_id ?? resp.headers.get('X-Friday-Run-ID')
+    if (typeof id === 'string' && uuidPattern.test(id) && !id.includes(config.accessToken))
+      runContext.runId = id
+    const error = httpError(resp.status, envelope, runContext.runId, resp.headers)
+    if (paceKey !== null && resp.status === 429)
+      pacing.recordThrottle(paceKey, sentAt, retryAfterMs(envelope, resp.headers), sessionIds(args))
+    if (tool.diagnostic && envelope.retry_scope === tool.name)
+      return { ...error, structuredContent: { ...error.structuredContent, retry_scope: tool.name } }
+    return error
+  }
+  const operationTool = tool.name === 'start_technical_blueprint' || tool.name === 'get_blueprint_operation'
+  if (!isObject(body) || ((operationTool || tool.diagnostic) && 'error_code' in body) || !tool.validate(body).valid)
+    return clientError('mcp_manifest_mismatch', runContext.runId, resp.status)
 
-  if (!resp.ok)
-    return textResult(`Friday 工具 ${toolName} 失败（HTTP ${resp.status}）: ${bodyText.slice(0, 2000)}`, true)
-
-  try {
-    const body = JSON.parse(bodyText)
-    runContext.remember(body)
-    if (toolName === 'get_confirmed_blueprint_handoff') {
-      try {
-        return await persistConfirmedHandoff(bodyText, body as Record<string, unknown>, args)
-      }
-      catch (e) {
-        const message = e instanceof Error ? e.message : String(e)
-        return textResult(`Friday 蓝图交接包写入本机文件失败: ${message}`, true)
-      }
-    }
-    return textResult(JSON.stringify(body, null, 2))
-  }
-  catch {
-    return textResult(`Friday 响应不是 JSON（HTTP ${resp.status}）: ${bodyText.slice(0, 500)}`, true)
-  }
+  // Reject accidental credential echoes even on a schema-valid HTTP 200.
+  const serialized = JSON.stringify(body)
+  if (serialized.includes(config.accessToken) || /friday_pat_[A-Za-z0-9_-]{20,}/.test(serialized))
+    return clientError('mcp_manifest_mismatch', runContext.runId, resp.status)
+  const id = body.run_id
+  if (typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(id))
+    runContext.runId = id
+  if (paceKey !== null)
+    pacing.recordPoll(paceKey, sentAt, body.poll_after_ms, sessionIds(args, body))
+  else if (!tool.annotations.readOnlyHint)
+    pacing.clearSession(sessionIds(args, body))
+  if (tool.name === 'get_confirmed_blueprint_handoff')
+    return persistConfirmedHandoff(bytes, body, args, typeof id === 'string' ? id : null)
+  return success(body)
 }
 
 export function createServer(): Server {
@@ -192,18 +155,16 @@ export function createServer(): Server {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: FRIDAY_TOOLS.map(t => ({
       name: t.name,
-      title: TOOL_ANNOTATIONS[t.name]?.title,
+      title: t.annotations.title,
       description: t.description,
       inputSchema: t.inputSchema,
-      annotations: TOOL_ANNOTATIONS[t.name],
+      outputSchema: t.outputSchema,
+      annotations: t.annotations,
     })),
   }))
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params
-    const known = FRIDAY_TOOLS.some(t => t.name === name)
-    if (!known)
-      return textResult(`未知工具: ${name}`, true)
     return callFridayTool(name, (args ?? {}) as Record<string, unknown>, runContext)
   })
 
