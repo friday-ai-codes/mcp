@@ -64,9 +64,17 @@ npx -y @friday-ai-codes/mcp@0.7.0 register
 npx @friday-ai-codes/skills
 ```
 
+## 错误结果
+
+工具调用失败（缺配置、401/403、非 2xx、网络错误、超时、响应不符合契约、本地节流等）时，适配器返回 `isError: true` 的结果，不会抛异常：
+
+- `_meta["friday/error"]`：机读错误信封 `{ error_code, http_status, retryable, run_id }`，蓝图诊断工具带服务端给出的 `retry_scope` 时一并保留。所有工具都提供这一字段，客户端应以它为准读取错误码。
+- 文本内容：中文说明，其中包含错误码。
+- `structuredContent`：仅当工具的 outputSchema 声明了错误分支（蓝图诊断工具、`start_technical_blueprint`、`get_blueprint_operation`）时才携带同一信封；其他工具的 outputSchema 只描述成功形状，而 MCP SDK 客户端即使对 `isError` 结果也按 outputSchema 校验 `structuredContent`，因此这些工具的错误结果不带 `structuredContent`，避免客户端报 `-32602` 而丢失错误码。
+
 ## 蓝图轮询节流
 
-服务端对蓝图轮询入口按用户限流，超限时返回 HTTP 429 `throttled`。适配器把重试时长（毫秒）放进工具结果的 `_meta["friday/retry_after_ms"]`，文本内容中也带 `retry_after_ms=…`：优先取响应体的 `retry_after_ms`，其次取 `Retry-After` 头 × 1000，只接受正整数并限制在 1–300000；缺失或无法解析时按 5000 毫秒退避。`structuredContent` 保持与工具 outputSchema 错误分支一致（`error_code` / `http_status` / `retryable` / `run_id`），不新增字段，因此按 outputSchema 校验结果的 MCP SDK 客户端可以正常接收。
+服务端对蓝图轮询入口按用户限流，超限时返回 HTTP 429 `throttled`。适配器把重试时长（毫秒）放进工具结果的 `_meta["friday/retry_after_ms"]`（与 `_meta["friday/error"]` 并存），文本内容中也带 `retry_after_ms=…`：优先取响应体的 `retry_after_ms`，其次取 `Retry-After` 头 × 1000，只接受正整数并限制在 1–300000；缺失或无法解析时按 5000 毫秒退避。
 
 `get_blueprint_status`、`get_blueprint_operation` 和其他蓝图诊断工具（`get_blueprint_events`、`get_blueprint_review` 等）在本地按 `(工具, session_id | operation_id | artifact_id)` 节流：下次允许发送的时间为上次发送时刻加上 `poll_after_ms` 与 `retry_after_ms` 中的较大者。提前到达的同键调用不会发往服务端，直接返回 `throttled`，其中 `http_status` 为 `null`，`_meta["friday/retry_after_ms"]` 为剩余毫秒数。
 

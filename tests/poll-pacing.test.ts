@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_RETRY_AFTER_MS, httpError, MAX_RETRY_AFTER_MS, RETRY_AFTER_META_KEY, retryAfterMeta, retryAfterMs } from '../src/errors.js'
+import { DEFAULT_RETRY_AFTER_MS, ERROR_META_KEY, errorMeta, httpError, MAX_RETRY_AFTER_MS, RETRY_AFTER_META_KEY, retryAfterMeta, retryAfterMs } from '../src/errors.js'
 import { isPacedTool, pacingKey, PollPacer } from '../src/pollPacing.js'
 import { callFridayTool, RunContext } from '../src/server.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -82,7 +82,10 @@ describe('429 retry_after_ms preservation', () => {
     expect(result.structuredContent).toEqual({
       error_code: 'throttled', http_status: 429, retryable: true, run_id: null,
     })
-    expect((result as { _meta?: unknown })._meta).toEqual({ [RETRY_AFTER_META_KEY]: 7000 })
+    expect((result as { _meta?: unknown })._meta).toEqual({
+      [RETRY_AFTER_META_KEY]: 7000,
+      [ERROR_META_KEY]: { error_code: 'throttled', http_status: 429, retryable: true, run_id: null },
+    })
     expect(result.content[0]!.text).toContain('retry_after_ms=7000')
     expect(result.content[0]!.text).toContain('限流')
   })
@@ -134,9 +137,9 @@ describe('local pacing before T elapses', () => {
       await vi.advanceTimersByTimeAsync(step)
       const local = await read('get_blueprint_operation', { operation_id: OPERATION })
       expect(local.isError).toBe(true)
-      expect(local.structuredContent.error_code).toBe('throttled')
-      expect(local.structuredContent.http_status).toBeNull()
-      expect(local.structuredContent.retryable).toBe(true)
+      expect(local.structuredContent?.error_code).toBe('throttled')
+      expect(local.structuredContent?.http_status).toBeNull()
+      expect(local.structuredContent?.retryable).toBe(true)
       const remaining = retryAfterMeta(local)!
       expect(remaining).toBeGreaterThan(0)
       expect(remaining).toBeLessThanOrEqual(4000)
@@ -270,7 +273,9 @@ describe('non-polling tools are unaffected', () => {
     const read = caller(new RunContext(), upstream.impl)
     for (let i = 0; i < 3; i++) {
       const result = await read('get_technical_blueprint', { artifact_id: ARTIFACT })
-      expect(result.structuredContent).toMatchObject({ error_code: 'throttled', http_status: 429 })
+      // get_technical_blueprint has no error branch: the envelope travels only in _meta.
+      expect(result.structuredContent).toBeUndefined()
+      expect(errorMeta(result)).toMatchObject({ error_code: 'throttled', http_status: 429 })
       expect(retryAfterMeta(result)).toBe(9000)
     }
     expect(upstream.calls()).toBe(3)
@@ -374,7 +379,7 @@ describe('throttled results stay valid against the generated outputSchema', () =
         const limited = await client.callTool({ name, arguments: args })
         expect(limited.isError).toBe(true)
         expect(limited.structuredContent).toMatchObject({ error_code: 'throttled', http_status: 429 })
-        expect(limited._meta).toEqual({ [RETRY_AFTER_META_KEY]: 4000 })
+        expect(limited._meta).toEqual({ [RETRY_AFTER_META_KEY]: 4000, [ERROR_META_KEY]: limited.structuredContent })
         const refused = await client.callTool({ name, arguments: args })
         expect(refused.isError).toBe(true)
         expect(refused.structuredContent).toMatchObject({ error_code: 'throttled', http_status: null })

@@ -9,6 +9,7 @@ import { chmod, link, lutimes, mkdir, mkdtemp, readFile, readdir, rm, stat, syml
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { MISSING_CONFIG_MESSAGE } from '../src/config.js'
+import { errorMeta, RETRY_AFTER_META_KEY } from '../src/errors.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv'
@@ -38,6 +39,11 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 })
 
 const CONFIG = { baseUrl: 'https://friday.internal', accessToken: 'secret-pat' }
+
+/** Tools whose generated outputSchema carries the sanitized error branch (structuredContent kept). */
+function hasErrorBranch(name: string): boolean {
+  return 'oneOf' in FRIDAY_TOOLS.find(tool => tool.name === name)!.outputSchema
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -200,11 +206,12 @@ describe('callFridayTool', () => {
     }, 503))
     const context = new RunContext()
     const read = (args: Record<string, unknown>) => callFridayTool(name, args, context, fetchMock, () => CONFIG)
-    expect((await read({ session_id: run_id, limit: 101 })).structuredContent.error_code).toBe('invalid_params')
+    expect((await read({ session_id: run_id, limit: 101 })).structuredContent?.error_code).toBe('invalid_params')
     expect(fetchMock).not.toHaveBeenCalled()
     const result = await read({ session_id: run_id, limit: 1, since_seq: 4 })
     expect(result.structuredContent).toEqual({ error_code: 'unavailable', retryable: true,
       http_status: 503, run_id, retry_scope: name })
+    expect(errorMeta(result)).toEqual(result.structuredContent)
     expect(JSON.stringify(result)).not.toContain('private')
     expect(context.runId).toBe(run_id)
   })
@@ -258,7 +265,7 @@ describe('callFridayTool', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error_code: 'invalid_params' }, 400))
     const args = { probe: name }
     const result = await callFridayTool(name, args, new RunContext(), fetchMock, () => CONFIG)
-    expect(result.structuredContent.error_code).toBe('invalid_params')
+    expect(errorMeta(result)?.error_code).toBe('invalid_params')
     expect(fetchMock).toHaveBeenCalledWith(`${CONFIG.baseUrl}/api/mcp/tools/${name}/`, expect.objectContaining({
       method: 'POST',
       body: JSON.stringify(args),
@@ -276,7 +283,9 @@ describe('callFridayTool', () => {
     const fetchMock = vi.fn()
     const result = await callFridayTool('route_repositories', {}, new RunContext(), fetchMock, () => null)
     expect(result.isError).toBe(true)
-    expect(result.content[0]!.text).toBe(MISSING_CONFIG_MESSAGE)
+    expect(result.content[0]!.text).toContain(MISSING_CONFIG_MESSAGE)
+    expect(result.content[0]!.text).toContain('mcp_config_missing')
+    expect(errorMeta(result)).toEqual({ error_code: 'mcp_config_missing', http_status: null, retryable: false, run_id: null })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -371,7 +380,7 @@ describe('callFridayTool', () => {
       await mkdir(target)
       const failed = await callFridayTool('get_confirmed_blueprint_handoff', body, new RunContext(),
         async () => new Response(bytes), () => CONFIG)
-      expect(failed.structuredContent.error_code).toBe('handoff_write_failed')
+      expect(errorMeta(failed)?.error_code).toBe('handoff_write_failed')
       expect(JSON.stringify(failed)).not.toContain(directory)
       expect(await readdir(handoffs)).toHaveLength(1)
     } finally {
@@ -419,7 +428,8 @@ describe('callFridayTool', () => {
       const context = new RunContext()
       const body = { detail: detail + CONFIG.accessToken, error_code: 'repository_not_found', run_id: id, stack: 'private' }
       const result = await callFridayTool('get_repository', {}, context, async () => jsonResponse(body, 404), () => CONFIG)
-      expect(result.structuredContent).toEqual({ error_code: 'repository_not_found', http_status: 404, retryable: false, run_id: id })
+      expect(errorMeta(result)).toEqual({ error_code: 'repository_not_found', http_status: 404, retryable: false, run_id: id })
+      expect(result.structuredContent).toBeUndefined()
       expect(context.runId).toBe(id)
       expect(JSON.stringify(result)).not.toContain(CONFIG.accessToken)
       expect(JSON.stringify(result)).not.toContain('private')
@@ -454,7 +464,9 @@ describe('callFridayTool', () => {
     const context = new RunContext()
     const result = await callFridayTool(name, args, context, fetchMock, () => CONFIG)
     expect(result.isError).toBe(true)
-    expect(result.structuredContent).toEqual({ error_code: code, http_status: status, retryable, run_id: GATE_SESSION })
+    const envelope = { error_code: code, http_status: status, retryable, run_id: GATE_SESSION }
+    expect(errorMeta(result)).toEqual(envelope)
+    expect(result.structuredContent).toEqual(hasErrorBranch(name) ? envelope : undefined)
     expect(JSON.stringify(result)).not.toContain('private')
     expect(JSON.stringify(result)).not.toContain(CONFIG.accessToken)
     expect(fetchMock).toHaveBeenCalledWith(`${CONFIG.baseUrl}/api/mcp/tools/${name}/`, expect.objectContaining({
@@ -473,7 +485,8 @@ describe('callFridayTool', () => {
   ] as const)('sanitizes response and transport failures', async (respond, code) => {
     const result = await callFridayTool('get_repository', {}, new RunContext(), async () => respond(), () => CONFIG)
     expect(result.isError).toBe(true)
-    expect(result.structuredContent.error_code).toBe(code)
+    expect(errorMeta(result)?.error_code).toBe(code)
+    expect(result.content[0]!.text).toContain(code)
     expect(JSON.stringify(result)).not.toContain(CONFIG.accessToken)
   })
 
@@ -623,7 +636,9 @@ describe('blueprint review, targeted retry and handoff tools', () => {
     }, 409))
     const result = await callFridayTool(name, { session_id: SESSION }, new RunContext(), fetchMock, () => CONFIG)
     expect(result.isError).toBe(true)
-    expect(result.structuredContent).toEqual({ error_code: code, http_status: 409, retryable: false, run_id: SESSION })
+    const envelope = { error_code: code, http_status: 409, retryable: false, run_id: SESSION }
+    expect(errorMeta(result)).toEqual(envelope)
+    expect(result.structuredContent).toEqual(hasErrorBranch(name) ? envelope : undefined)
     expect(result.content[0]!.text).toContain(code)
     expect(result.content[0]!.text).toContain(hint)
     expect(JSON.stringify(result)).not.toContain('private')
@@ -699,14 +714,15 @@ describe('confirmed handoff file and cleanup', () => {
     await sandbox(async (_root, handoffs) => {
       for (const change of [{ content_hash: 'c'.repeat(64) }, { repository_task_count: 3 }, { current_status: 'approved' }]) {
         const { result } = await handoff({ ...handoffBody, ...change })
-        expect(result.structuredContent.error_code).toBe('handoff_binding_invalid')
+        expect(errorMeta(result)?.error_code).toBe('handoff_binding_invalid')
+        expect(result.structuredContent).toBeUndefined()
       }
       await expect(stat(handoffs)).rejects.toThrow()
 
       await mkdir(handoffs, { mode: 0o700 })
       await chmod(handoffs, 0o755)
       const { result } = await handoff()
-      expect(result.structuredContent.error_code).toBe('handoff_write_failed')
+      expect(errorMeta(result)?.error_code).toBe('handoff_write_failed')
       expect(await readdir(handoffs)).toEqual([])
     })
   })
@@ -818,12 +834,12 @@ describe('blueprint poll throttling (SEC-06)', () => {
       expect(limited.structuredContent).toEqual({
         error_code: 'throttled', http_status: 429, retryable: true, run_id: null,
       })
-      expect(resultMeta(limited)).toEqual({ 'friday/retry_after_ms': 2000 })
+      expect(resultMeta(limited)).toEqual({ [RETRY_AFTER_META_KEY]: 2000, 'friday/error': limited.structuredContent })
       expect(JSON.stringify(limited)).not.toContain(CONFIG.accessToken)
       await vi.advanceTimersByTimeAsync(1999)
       const local = await read()
       expect(local.structuredContent).toEqual({ error_code: 'throttled', http_status: null, retryable: true, run_id: null })
-      expect(resultMeta(local)).toEqual({ 'friday/retry_after_ms': 1 })
+      expect(resultMeta(local)).toEqual({ [RETRY_AFTER_META_KEY]: 1, 'friday/error': local.structuredContent })
       expect(fetchImpl).toHaveBeenCalledTimes(1)
       await vi.advanceTimersByTimeAsync(1)
       expect((await read()).structuredContent).toEqual(receipt(1000))
@@ -861,8 +877,11 @@ describe('blueprint poll throttling (SEC-06)', () => {
     const context = new RunContext()
     for (let i = 0; i < 2; i++) {
       const result = await callFridayTool('search_rag_chunks', { query: 'x' }, context, fetchImpl, () => CONFIG)
-      expect(result.structuredContent).toMatchObject({ error_code: 'throttled', http_status: 429 })
-      expect(resultMeta(result)).toEqual({ 'friday/retry_after_ms': 1500 })
+      expect(result.structuredContent).toBeUndefined()
+      expect(resultMeta(result)).toEqual({
+        [RETRY_AFTER_META_KEY]: 1500,
+        'friday/error': { error_code: 'throttled', http_status: 429, retryable: true, run_id: null },
+      })
     }
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })

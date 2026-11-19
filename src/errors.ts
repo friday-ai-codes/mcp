@@ -39,8 +39,61 @@ export const MAX_RETRY_AFTER_MS = 300_000
  */
 export const RETRY_AFTER_META_KEY = 'friday/retry_after_ms'
 
-function withRetryAfter<T extends object>(result: T, wait: number) {
-  return { ...result, _meta: { [RETRY_AFTER_META_KEY]: wait } }
+/**
+ * Every error result carries its machine-readable envelope in CallToolResult._meta. Most tool
+ * outputSchemas only describe the success shape, and SDK clients validate structuredContent
+ * even for isError results, so structuredContent is kept only where the schema accepts it.
+ */
+export const ERROR_META_KEY = 'friday/error'
+
+export interface ErrorEnvelope {
+  error_code: string
+  http_status: number | null
+  retryable: boolean
+  run_id: string | null
+  retry_scope?: string
+}
+
+export interface ToolResult {
+  isError?: boolean
+  content: { type: 'text', text: string }[]
+  structuredContent?: Record<string, unknown>
+  _meta?: Record<string, unknown>
+}
+
+function withRetryAfter<T extends ToolResult>(result: T, wait: number): T {
+  return { ...result, _meta: { ...result._meta, [RETRY_AFTER_META_KEY]: wait } }
+}
+
+/** Machine-readable error envelope of a tool result, or null when absent. */
+export function errorMeta(result: object): ErrorEnvelope | null {
+  const meta = (result as { _meta?: Record<string, unknown> })._meta
+  const value = meta?.[ERROR_META_KEY]
+  return typeof value === 'object' && value !== null ? value as ErrorEnvelope : null
+}
+
+/**
+ * Final shape of an error result for one tool: _meta['friday/error'] always carries the
+ * envelope (merged with any existing _meta such as the retry backoff); structuredContent is
+ * dropped unless `accepts` (the tool's outputSchema validator) admits it.
+ */
+export function finalizeError(result: ToolResult, accepts?: (value: unknown) => boolean): ToolResult {
+  const content = result.structuredContent
+  if (!result.isError || content === undefined)
+    return result
+  const envelope: ErrorEnvelope = {
+    error_code: typeof content.error_code === 'string' ? content.error_code : 'mcp_http_error',
+    http_status: typeof content.http_status === 'number' ? content.http_status : null,
+    retryable: content.retryable === true,
+    run_id: typeof content.run_id === 'string' ? content.run_id : null,
+  }
+  if (typeof content.retry_scope === 'string')
+    envelope.retry_scope = content.retry_scope
+  const { structuredContent: _dropped, ...rest } = result
+  const finalized: ToolResult = { ...rest, _meta: { ...result._meta, [ERROR_META_KEY]: envelope } }
+  if (accepts?.(content))
+    finalized.structuredContent = content
+  return finalized
 }
 
 /** Machine-readable backoff of a throttled result, or null when absent. */
@@ -96,7 +149,7 @@ const publicCodes = new Set([
 
 function failure(code: string, detail: string, status: number | null, retryable: boolean, runId: string | null) {
   return {
-    isError: true,
+    isError: true as const,
     content: [{ type: 'text' as const, text: detail }],
     structuredContent: { error_code: code, http_status: status, retryable, run_id: runId },
   }
@@ -106,7 +159,7 @@ export function clientError(code: keyof typeof clientMessages, runId: string | n
   const retryable = code === 'mcp_timeout' || code === 'mcp_network_error'
   // Earlier handoff consumers parsed these two local validation errors as JSON.
   const detail = code === 'handoff_binding_invalid' || code === 'blueprint_delivery_not_ready'
-    ? JSON.stringify({ code, retryable }) : clientMessages[code]
+    ? JSON.stringify({ code, retryable }) : `${clientMessages[code]}（${code}）`
   return failure(code, detail, status, retryable, runId)
 }
 
@@ -135,7 +188,7 @@ export function localThrottled(remainingMs: number, runId: string | null) {
   const wait = Math.max(Math.ceil(remainingMs), 1)
   const result = failure(
     'throttled',
-    `未发送请求：距服务端允许的下次查询还有 ${wait} 毫秒。${serverErrorHints.throttled}（retry_after_ms=${wait}）`,
+    `未发送请求（throttled）：距服务端允许的下次查询还有 ${wait} 毫秒。${serverErrorHints.throttled}（retry_after_ms=${wait}）`,
     null,
     true,
     runId,

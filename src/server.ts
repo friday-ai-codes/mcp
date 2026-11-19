@@ -8,8 +8,12 @@
  * 聚合为同一条轨迹。
  *
  * 轮询节流：蓝图轮询工具按服务端 poll_after_ms 与 429 retry_after_ms 在本地节流
- * （见 pollPacing.ts），从不自动重发。重试时长放在结果 _meta['friday/retry_after_ms']，
- * structuredContent 保持与 outputSchema 错误分支一致。
+ * （见 pollPacing.ts），从不自动重发。重试时长放在结果 _meta['friday/retry_after_ms']。
+ *
+ * 错误信封：所有错误结果在 _meta['friday/error'] 携带 {error_code, http_status, retryable,
+ * run_id[, retry_scope]}。SDK 客户端即使对 isError 结果也按 outputSchema 校验 structuredContent，
+ * 而多数工具的 outputSchema 只描述成功形状，因此仅在该工具 outputSchema 接受时保留
+ * structuredContent（带错误分支的蓝图工具），否则删除，避免客户端抛 -32602 丢失错误码。
  *
  * 容错：缺配置 / 401 / 403 / 非 200 / 网络错误一律返回 isError 文本，
  * 绝不抛异常崩掉 stdio 进程；PAT 绝不进入任何返回文本或日志。
@@ -22,7 +26,8 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv'
-import { clientError, httpError, localThrottled, retryAfterMs } from './errors.js'
+import type { ToolResult } from './errors.js'
+import { clientError, finalizeError, httpError, localThrottled, retryAfterMs } from './errors.js'
 import { isPacedTool, pacingKey, PollPacer, sessionIds } from './pollPacing.js'
 import { isObject, persistConfirmedHandoff, success } from './resultAdapters.js'
 import type { FridayConfig } from './config.js'
@@ -53,6 +58,8 @@ export class RunContext {
 
 /**
  * 执行单次工具调用（导出便于单测，不依赖 MCP transport）。
+ *
+ * 所有出口（含 persistConfirmedHandoff 的本地错误）统一经 finalizeError 规整错误信封。
  */
 export async function callFridayTool(
   toolName: string,
@@ -60,10 +67,21 @@ export async function callFridayTool(
   runContext: RunContext,
   fetchImpl: typeof fetch = fetch,
   configResolver: () => FridayConfig | null = resolveConfig,
-) {
+): Promise<ToolResult> {
   const tool = toolsByName.get(toolName)
-  if (!tool)
-    return clientError('mcp_unknown_tool', runContext.runId)
+  const result: ToolResult = tool
+    ? await dispatchFridayTool(tool, args, runContext, fetchImpl, configResolver)
+    : clientError('mcp_unknown_tool', runContext.runId)
+  return finalizeError(result, tool && (value => tool.validate(value).valid))
+}
+
+async function dispatchFridayTool(
+  tool: NonNullable<ReturnType<typeof toolsByName.get>>,
+  args: Record<string, unknown>,
+  runContext: RunContext,
+  fetchImpl: typeof fetch,
+  configResolver: () => FridayConfig | null,
+): Promise<ToolResult> {
 
   if (tool.diagnostic && !tool.validateInput(args).valid)
     return httpError(400, { error_code: 'invalid_params', retryable: false }, runContext.runId)
