@@ -28,7 +28,7 @@ export interface BlueprintOperationReceipt {
 }
 
 export const CLIENT_CONTRACT_VERSION = "mcp-tools/v1"
-export const CLIENT_MANIFEST_HASH = "3bc722ebde020a6ea11fa27f3a31ab1f1a2748983ab18f88a5468f1e0229cc63"
+export const CLIENT_MANIFEST_HASH = "e1e1320392cc5e4d136d0e3a3ecfe5eef0857d01c0abea97e3bcc564aafc46a9"
 export const FRIDAY_TOOLS: FridayToolDefinition[] = [
   {
     "annotations": {
@@ -9053,7 +9053,7 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
       "readOnlyHint": true,
       "title": "分析 · GraphRAG 混合检索"
     },
-    "description": "在指定仓库做 Graph RAG 混合检索（语义 + 关键词 + 图谱扩散），返回相关代码块与关系边。代码证据收集的主力工具。",
+    "description": "在指定仓库做 Graph RAG 混合检索（语义 + 关键词 + 图谱扩散），返回相关代码块与关系边；related_code 附带顺着调用和引用关系找到的关联代码（被调用的实现、调用方页面等，带代码）。代码证据收集的主力工具。",
     "endpoint": "/api/mcp/tools/search_rag_chunks/",
     "inputSchema": {
       "additionalProperties": true,
@@ -9132,6 +9132,10 @@ export const FRIDAY_TOOLS: FridayToolDefinition[] = [
         },
         "query": {
           "type": "string"
+        },
+        "related_code": {
+          "items": {},
+          "type": "array"
         },
         "related_edges": {
           "items": {},
